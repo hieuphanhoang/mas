@@ -8,16 +8,23 @@ export interface ResumeTarget {
   workingFolder: string | null;
 }
 
-const ps = (s: string) => `"${s.replace(/"/g, '`"')}"`;
+export type ResumeCommand = { command: string } | { reason: string };
 
-/** Returns null when there is nothing to resume (no session yet, or a relay / planned harness). */
-export function resumeCommand(t: ResumeTarget): string | null {
+/** A PowerShell literal: single quotes never expand $, $() or backticks. PowerShell also treats the
+ *  curly single quotes as quote marks, so every one of them is doubled (AGENT-004, Codex P1). */
+export const psLiteral = (s: string) => `'${s.replace(/['‘’‚‛]/g, "$&$&")}'`;
+
+/** Returns null when there is nothing to resume (no session yet, or a relay / planned harness), and a
+ *  reason when a session exists but a pasted command could not open it correctly. */
+export function resumeCommand(t: ResumeTarget): ResumeCommand | null {
   if (!t.sessionId || !t.workingFolder) return null;
-  const cd = `Set-Location ${ps(t.workingFolder.replace(/\//g, "\\"))}; `;
+  const cd = `Set-Location -LiteralPath ${psLiteral(t.workingFolder.replace(/\//g, "\\"))}; `;
   switch (t.harness) {
-    case "claude": return `${cd}claude --resume ${t.sessionId} --model ${t.model}`;
-    case "codex": return `${cd}codex resume ${t.sessionId}`;
-    case "opencode": return `${cd}opencode --session ${t.sessionId} --model ${t.model}`;
+    case "claude": return { command: `${cd}claude --resume ${psLiteral(t.sessionId)} --model ${psLiteral(t.model)}` };
+    case "codex": return { command: `${cd}codex resume ${psLiteral(t.sessionId)}` };
+    // MAS hands opencode its provider settings per run (OPENCODE_CONFIG_CONTENT); a bare command in a
+    // normal terminal would not find the model (AGENT-004, Codex P2).
+    case "opencode": return { reason: "An opencode session needs the provider settings MAS passes on each run, so a plain command cannot open it. Use Open in terminal once the service offers it." };
     default: return null;
   }
 }

@@ -118,6 +118,16 @@ function StreamPill({ state, reason }: { state: string; reason: string | null })
 
 const TONE_VAR = { ok: "var(--ok)", warn: "var(--amber)", bad: "var(--alert)", off: "var(--offline)", info: "var(--chart)" } as const;
 
+/** Threads the Owner may continue with this agent: AGENT threads it is part of. An ASK is answered
+ *  through the Owner reply flow in the Inbox; the message endpoint rejects an ASK thread_ref
+ *  (AGENT-004, Codex P2). */
+export function agentThreads(items: ThreadSummary[], name: string): ThreadSummary[] {
+  return items
+    .filter((t) => t.thread_ref.thread_id.startsWith("AGENT-"))
+    .filter((t) => t.from_name === name || (t.to_name ?? "").split(",").map((x) => x.trim()).includes(name))
+    .slice(0, 30);
+}
+
 export function lampTone(s: AgentStatus["state"]): "ok" | "warn" | "bad" | "off" | "info" {
   switch (s) {
     case "idle": return "ok";
@@ -151,7 +161,8 @@ function Lane({ a, on, onSelect }: { a: AgentView; on: boolean; onSelect: () => 
  *  supports it) a button that opens it in a terminal window on this PC. */
 function SessionPanel({ projectId, a, workingFolder }: { projectId: string; a: AgentView; workingFolder: string | null }) {
   const s = a.status;
-  const cmd = resumeCommand({ harness: a.config.harness, sessionId: s.session_id, model: a.config.model, workingFolder });
+  const resume = resumeCommand({ harness: a.config.harness, sessionId: s.session_id, model: a.config.model, workingFolder });
+  const cmd = resume && "command" in resume ? resume.command : null;
   const [copied, setCopied] = useState(false);
   const open = useMutation({
     mutationFn: async () => (await post<{ command?: string }>(`/projects/${encodeURIComponent(projectId)}/agents/${encodeURIComponent(a.config.id)}/resume-window`, undefined, { idempotencyKey: idempotencyKey() })).data,
@@ -167,11 +178,12 @@ function SessionPanel({ projectId, a, workingFolder }: { projectId: string; a: A
         <span className="session__label">Session</span>
         <span className="muted small mono">{s.session_id ? `${s.session_id.slice(0, 18)}${s.session_id.length > 18 ? "..." : ""} - gen ${s.session_generation ?? "-"}` : "none yet - it starts on the first call"}</span>
       </div>
-      {cmd && (
+      {resume && "reason" in resume && <div className="muted small">{resume.reason}</div>}
+      {resume && (
         <>
-          <code className="session__cmd">{cmd}</code>
+          {cmd && <code className="session__cmd">{cmd}</code>}
           <div className="row">
-            <button className="btn" onClick={copy}><Icon name={copied ? "check" : "output"} size={15} />{copied ? "Copied" : "Copy resume command"}</button>
+            {cmd && <button className="btn" onClick={copy}><Icon name={copied ? "check" : "output"} size={15} />{copied ? "Copied" : "Copy resume command"}</button>}
             {a.capabilities.attach && (
               <button className="btn btn--primary" disabled={busy || open.isPending} onClick={() => open.mutate()} title={busy ? "Wait until the agent finishes its turn" : "Opens this agent's session in a new terminal window"}>
                 <Icon name="call" size={15} />Open in terminal
@@ -219,9 +231,7 @@ function Drawer({ projectId, a, onClose, workingFolder }: { projectId: string; a
   const member = a.config.log_duty === "member";
   const effectiveLog = logId || a.config.log_ids[0] || logs.data?.items[0]?.log_id || "";
   const allThreads = useLogIndex(projectId, member ? effectiveLog : undefined, "all");
-  const theirThreads = ((allThreads.data?.items ?? []) as ThreadSummary[])
-    .filter((t) => t.from_name === a.config.name || t.to_name === a.config.name || (t.to_name ?? "").split(",").map((x) => x.trim()).includes(a.config.name))
-    .slice(0, 30);
+  const theirThreads = agentThreads((allThreads.data?.items ?? []) as ThreadSummary[], a.config.name);
 
   const sendChat = (e: React.FormEvent) => {
     e.preventDefault();
