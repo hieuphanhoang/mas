@@ -62,6 +62,9 @@
         "created_at": {"$ref": "#/$defs/Timestamp"}, "updated_at": {"$ref": "#/$defs/Timestamp"},
         "thread_ref": {"anyOf": [{"$ref": "#/$defs/ThreadRef"}, {"type": "null"}]},
         "run_id": {"anyOf": [{"$ref": "project.schema.json#/$defs/Id"}, {"type": "null"}]},
+          "caller": {"$ref": "#/$defs/CallCaller", "description": "History projection on listCalls only. Not supplied by request bodies or required on stored receipts/events."},
+          "run_started_at": {"anyOf": [{"$ref": "#/$defs/Timestamp"}, {"type": "null"}], "description": "History projection: run allocation time, null before dispatch."},
+          "run_finished_at": {"anyOf": [{"$ref": "#/$defs/Timestamp"}, {"type": "null"}], "description": "History projection: supervisor completion/reconciliation time, null while active or never started. Unknown outcomes do not prove process exit."},
         "process_outcome": {"enum": ["not_started", "running", "succeeded", "failed", "cancelled", "unknown", "not_applicable"]},
         "thread_reply_observed": {"type": "boolean"},
         "correlation_id": {"$ref": "project.schema.json#/$defs/Id"},
@@ -70,6 +73,14 @@
         "status_url": {"type": "string", "pattern": "^/api/v1/projects/[^/]+/calls/[^/]+$"}
       },
       "description": "A task without a required member reply fails with missing_reply despite process success. A notification completes with reason null on successful process exit, independently of thread_reply_observed; this claims only that the turn finished, not that the answer was acted upon. Manual notifications stay awaiting_manual. Failure/cancel/uncertain outcomes are preserved. No run-attributed follow_ups inferred from handwritten stamps. uncertain never auto-replays. Agent hierarchy/correlation fields are service assigned. Cancellation can be requested before its terminal confirmation."
+    },
+    "CallCaller": {
+      "type": "object", "additionalProperties": false, "required": ["kind", "agent_id"],
+      "properties": {
+        "kind": {"enum": ["owner", "agent", "unknown"]},
+        "agent_id": {"anyOf": [{"$ref": "project.schema.json#/$defs/Id"}, {"type": "null"}]}
+      },
+      "description": "Derived from authenticated delivery input or the parent delivery. Owner has null agent_id; unknown is only for missing historical ancestry. No identity inferred from comment text."
     },
     "QueuedDelivery": {"allOf": [{"$ref": "#/$defs/Delivery"}, {"properties": {"state": {"const": "queued"}}}]},
     "Run": {

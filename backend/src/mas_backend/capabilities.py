@@ -1,6 +1,7 @@
 """Version probes only: never start a model turn or change authentication."""
 from .common import stamp
 from .adapters import Adapter
+from .resume_window import supported
 
 
 def probe_capabilities():
@@ -20,7 +21,7 @@ def probe_capabilities():
         adapters.append(dict(harness=harness, availability=available, version=version, reason=reason,
             modes=["manual"] if harness == "relay" else ["managed", "manual"] if available == "available" else [],
             resume=available == "available", live_delivery=False,
-            attach=False, stop=available == "available", guard_coverage=dict(tool_paths="unsupported", shell_commands="unknown",
+            attach=available == "available" and supported(), stop=available == "available", guard_coverage=dict(tool_paths="unsupported", shell_commands="unknown",
             sandbox="unknown", limitations=["Lifecycle tested with fake subprocesses; live smoke and sandbox coverage remain unverified.",
                 "Only MAS-managed process trees are owned; external sessions are not adopted or killed.",
                 "Role/ownership instructions are workflow context, not OS enforcement."])))

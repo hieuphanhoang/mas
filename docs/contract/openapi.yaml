@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: MAS slice-1 API
-  version: 0.2.0
+  version: 0.3.0
   description: |
     Contract 0.2.0, agreed in AGENT-004. One Windows PC, loopback
     only, no login screen. GET /session bootstraps an HttpOnly SameSite=Strict
@@ -357,6 +357,37 @@ paths:
       responses:
         '200': {$ref: '#/components/responses/AgentControl'}
         default: {$ref: '#/components/responses/Error'}
+  /projects/{project_id}/agents/{agent_id}/resume-window:
+    parameters:
+      - {$ref: '#/components/parameters/ProjectId'}
+      - {$ref: '#/components/parameters/AgentId'}
+    post:
+      operationId: resumeAgentWindow
+      security: [{LocalSession: [], CsrfToken: []}]
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      description: |
+        Owner-only, no body. Open one visible Windows PowerShell terminal in the
+        agent's working folder, resuming its current explicit session ID with
+        its model, permissions and provider configuration. No prompt is sent.
+        Requires an applied configuration and explicitly enabled real adapters.
+        No session -> 422 no_session; unsupported platform/harness -> 422
+        unsupported_capability; active/uncertain/external writer -> 409 agent_busy.
+        A reservation is committed before launch and holds managed deliveries
+        queued while the terminal process lives, including harness startup.
+        Closing the terminal releases it; a launch failure releases it and returns
+        503 terminal_unavailable. Stop never kills the Owner's terminal.
+        Service restart leaves outstanding reservations unknown/paused for manual
+        reconciliation; no process adoption or guessed release. A receipt replay
+        returns the same 202 without opening another window, even after it closes.
+        MAS neither captures terminal output nor creates a managed Run for this
+        Owner session. It does not provide a managed-run agent bearer token.
+      responses:
+        '202':
+          description: Terminal launch accepted, not proof of harness initialization or a model turn.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ResumeWindowReceipt'}
+        default: {$ref: '#/components/responses/Error'}
   /projects/{project_id}/calls:
     parameters: [{$ref: '#/components/parameters/ProjectId'}]
     get:
@@ -368,7 +399,14 @@ paths:
         - name: agent_id
           in: query
           schema: {$ref: '#/components/schemas/Id'}
-      description: Agent scope sees only calls it sent/received; newest created first, ID tie-break.
+      description: |
+        Agent scope sees only calls it sent/received; newest created first, ID tie-break.
+        Each list item also contains caller, run_started_at and run_finished_at,
+        derived from durable delivery input and run records. Null times mean no
+        start/finish was recorded. These history fields are optional on Delivery
+        elsewhere (mutation receipts, individual calls and SSE are unchanged).
+        Pagination snapshots freeze history metadata too. Cursors issued before
+        0.3 return invalid_cursor; restart the list after upgrading.
       responses:
         '200':
           description: Durable delivery receipts, not provider transcripts.
@@ -695,6 +733,16 @@ components:
     ThreadRef: {$ref: 'events.schema.json#/$defs/ThreadRef'}
     AgentStatus: {$ref: 'events.schema.json#/$defs/AgentStatus'}
     Delivery: {$ref: 'events.schema.json#/$defs/Delivery'}
+    ResumeWindowReceipt:
+      type: object
+      additionalProperties: false
+      required: [opened, command, working_folder]
+      properties:
+        opened: {const: true}
+        command:
+          type: string
+          description: Exact PowerShell script run in the new window, including nonsecret OpenCode settings. Provider credentials are inherited privately and are not returned. This is not a managed-run launch command.
+        working_folder: {type: string}
     NullableCursor: {type: [string, 'null'], maxLength: 2048}
     Error:
       type: object
@@ -741,7 +789,7 @@ components:
         modes: {type: array, uniqueItems: true, items: {type: string, enum: [managed, manual]}}
         resume: {type: boolean}
         live_delivery: {type: boolean}
-        attach: {type: boolean, description: 'Informational only; resume-window endpoint is later.'}
+        attach: {type: boolean, description: 'Interactive Owner resume-window is available on this Windows host; a real adapter and existing session are still required.'}
         stop: {type: boolean}
         guard_coverage:
           type: object
@@ -946,7 +994,7 @@ components:
 
 # Later, deliberately NOT paths in slice 1:
 # - archive/delete and import preview/export; session replacement/start --fresh
-# - resume-window/interactive attach and live mid-turn messaging
+# - live mid-turn messaging
 # - doctor/doctor-runs, commits, leases/grant/revoke, rituals/manual/scheduled runs
 # - streamed output follow (slice 1 polls bounded JSON chunks)
 # - opencode execution next; Gemini CLI after v1; remote execution excluded

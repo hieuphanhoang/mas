@@ -1,5 +1,23 @@
 # MAS contract v1 - slice 1
 
+Contract revision 0.3.0 (AGENT-005) adds Owner-only `resume-window` and history
+metadata to the existing calls list. Regenerate clients together for the new
+optional Delivery properties: `caller` (`kind`, `agent_id`), `run_started_at`,
+and `run_finished_at`. The list always populates them; other delivery shapes and
+SSE payloads may omit them. Existing receipts/events stay byte-for-byte unchanged,
+so no data migration or replay is needed. Pre-0.3 call-list cursors are invalid;
+start a fresh list. Missing historical parent/input data is `caller.kind=unknown`,
+never guessed to be the Owner. Times describe supervisor run records, not provider
+transcripts or proof that an uncertain process exited.
+
+The resume endpoint returns a launch receipt for one visible Windows terminal,
+not a managed turn. A reservation blocks dispatch before spawn and until the
+window exits. Failure to spawn releases it. On service restart an outstanding
+reservation is held unknown/paused until manually reconciled, without adopting
+or killing the Owner's process. The window inherits the selected profile and
+OpenCode provider settings but receives no managed agent token. It is not a new
+registered session. No transcript reading or live-turn streaming was added.
+
 Contract revision 0.2.0 (AGENT-004) is a coordinated pre-release local upgrade.
 Regenerate both clients and deploy them together. The required Delivery.purpose
 field is a breaking shape change under additionalProperties=false; older clients

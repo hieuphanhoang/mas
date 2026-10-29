@@ -16,6 +16,7 @@ from .logs import LIVE
 from .scaffold import read_file
 from .adapters import Adapter, Outcome
 from .busy import ExternalSessions
+from . import resume_window
 
 TERMINAL = {"completed", "failed", "cancelled"}
 
@@ -49,6 +50,7 @@ class Runtime:
         )
         self.api_url = "http://127.0.0.1:8790/api/v1"
         self.external_reason = ExternalSessions().reason
+        self.windows = resume_window.Windows(store)
         self.tasks = {}
         self.pump_task = None
         self.closing = False
@@ -78,6 +80,13 @@ class Runtime:
                         run,
                         correlation=delivery["correlation_id"],
                     )
+        # Never adopt an Owner terminal after restart or guess that it exited.
+        for window in store.documents("resume_window"):
+            if window["state"] != "closed":
+                status = self.status(window["project_id"], window["agent_id"])
+                status.update(state="unknown", queue_paused=True,
+                              reason="Owner terminal reservation needs reconciliation after restart.")
+                self.save_status(window["project_id"], status)
         store.db.commit()
 
     def agent(self, project_id, agent_id):
@@ -160,6 +169,38 @@ class Runtime:
             raise Problem(404, "not_found", "Unknown delivery.")
         return value
 
+    def call_history(self, delivery):
+        intent = self.store.get("delivery_input", delivery["delivery_id"]) or {}
+        parent = self.store.get("delivery", delivery["parent_delivery_id"] or "") or {}
+        caller_id = intent.get("caller_agent_id") or parent.get("agent_id")
+        kind = "agent" if caller_id else "unknown" if delivery["parent_delivery_id"] else "owner"
+        run = self.store.get("run", delivery["run_id"] or "") or {}
+        return dict(delivery, caller=dict(kind=kind, agent_id=caller_id),
+                    run_started_at=run.get("started_at"), run_finished_at=run.get("finished_at"))
+
+    def resume_window(self, project_id, agent_id):
+        record, agent = self.agent(project_id, agent_id)
+        adapter = self.adapters.get(agent["harness"])
+        if self.fake or not resume_window.supported() or not adapter or not adapter.command:
+            raise Problem(422, "unsupported_capability", "Interactive resume requires a real supported harness on Windows.")
+        status = self.status(project_id, agent_id)
+        if status["active_run_id"] or status["state"] in ("starting", "busy", "stopping", "unknown"):
+            raise Problem(409, "agent_busy", "A managed or uncertain writer prevents interactive resume.")
+        if not status["session_id"]:
+            raise Problem(422, "no_session", "This agent has no session to resume.")
+        record, agent = self.validate_target(project_id, agent_id, capacity=False)
+        held = self.windows.reason(project_id, agent_id) or self.external_reason(agent["harness"], status["session_id"])
+        if held:
+            raise Problem(409, "agent_busy", held)
+        cwd = resolve(record["config"], dict(folder_id=agent["cwd_folder_id"], path="."))
+        command, env = resume_window.prepare(adapter, agent, status["session_id"], cwd,
+            [resolve(record["config"], ref) for ref in agent["owns"]],
+            [resolve(record["config"], dict(folder_id=log["folder_id"],
+                path=log["relative_path"].rstrip("/") + "/handoff.py"))
+             for log in record["config"]["logs"] if log["id"] in agent["log_ids"]])
+        self.windows.open(project_id, agent_id, command, env, cwd)
+        return dict(opened=True, command=command, working_folder=str(cwd))
+
     def save_delivery(self, delivery, queued=False):
         delivery.update(revision=token(), updated_at=stamp())
         self.store.put("delivery", delivery["delivery_id"], delivery)
@@ -210,6 +251,8 @@ class Runtime:
                 resume=True,
                 stop=True,
             )
+        result["attach"] = bool(not self.fake and resume_window.supported()
+            and agent["harness"] in self.adapters and result["availability"] == "available")
         return result
 
     def views(self, project_id):
@@ -596,7 +639,8 @@ class Runtime:
         return delivery
 
     def active(self, project_id):
-        return any(
+        return any(self.windows.reason(project_id, a["id"])
+                   for a in self.store.project(project_id)["config"]["agents"]) or any(
             d["state"] in ("dispatching", "running", "uncertain")
             for d in self.calls(project_id)
         )
@@ -653,8 +697,9 @@ class Runtime:
                     current, agent = self.validate_target(
                         project_id, agent_id, capacity=False
                     )
-                    if not self.fake and status["session_id"]:
-                        held = self.external_reason(agent["harness"], status["session_id"])
+                    if status["session_id"]:
+                        held = self.windows.reason(project_id, agent_id) or (
+                            self.external_reason(agent["harness"], status["session_id"]) if not self.fake else None)
                         if held:
                             if delivery["reason"] != held:
                                 delivery["reason"] = held

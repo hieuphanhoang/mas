@@ -81,6 +81,9 @@ def test_agent_side_mas_call_creates_scoped_child_delivery(live):
     active = poll(client, P + "/calls/" + parent["delivery_id"], lambda d: d["state"] == "running").json()
     secret = app.state.runtime.issue_credential("mas-self", "codex", active["run_id"])
     app.state.store.db.commit()
+    denied = client.post("/api/v1" + A + "/resume-window", headers={
+        "Authorization": "Bearer " + secret, "Idempotency-Key": "agent-resume-denied"})
+    assert denied.status_code == 403
     class Bridge(BaseHTTPRequestHandler):
         def do_GET(self):
             self.forward()

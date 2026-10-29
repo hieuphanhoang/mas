@@ -92,8 +92,17 @@ def install_routes(app, runtime, events, body, mutation):
         if credential:
             items = [item for item in items if item["agent_id"] == credential["agent_id"] or
                      (store.get("delivery_input", item["delivery_id"]) or {}).get("caller_agent_id") == credential["agent_id"]]
-        items, cursor = store.paginate(items, f"{request.state.principal}:calls:{project_id}:{agent_id}", limit, cursor)
+        items = [runtime.call_history(item) for item in items]
+        items, cursor = store.paginate(items, f"{request.state.principal}:calls-v0.3:{project_id}:{agent_id}", limit, cursor)
         return dict(items=items, next_cursor=cursor, event_cursor=store.cursor(project_id))
+
+    @app.post("/api/v1/projects/{project_id}/agents/{agent_id}/resume-window")
+    async def resume_window(project_id: str, agent_id: str, request: Request):
+        data = await body(request)
+        def action():
+            no_body(data)
+            return dict(status=202, body=runtime.resume_window(project_id, agent_id))
+        return mutation(request, data, action)
 
     @app.get("/api/v1/projects/{project_id}/calls/{call_id}")
     async def get_call(project_id: str, call_id: str, request: Request):
