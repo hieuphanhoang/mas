@@ -1,7 +1,9 @@
 # Pytest changes
 
-Compared with the previous full run: still 91 passed, no regressions.
-OpenCode's probe now accepts help on stderr; the fake CLI reproduces this
-installed 1.18.34 behavior. The existing probe test covers that correction.
+Compared with this branch's main baseline: still 91 passed, no regressions.
+Existing fake runtime tests now check first-start Claude/OpenCode labels, the
+prompt's project/agent first line, and no rename or new session on resume.
+The earlier test/levels run passed 96 tests; its five guard/packaging tests are
+not on this separate feature/session-labels branch created from main.
 The existing Starlette/httpx deprecation warning is unchanged.
 No saved test reports were replaced or deleted; output is in the terminal.

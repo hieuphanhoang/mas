@@ -258,7 +258,7 @@ class Adapter:
                 ],
                 **opts,
             )
-            needed = ("--format", "--model", "--session", "--agent", "--pure") if self.harness == "opencode" else (
+            needed = ("--format", "--model", "--session", "--agent", "--pure", "--title") if self.harness == "opencode" else (
                 ("--json", "--sandbox", "--model")
                 if self.harness == "codex"
                 else (
@@ -266,6 +266,7 @@ class Adapter:
                     "--resume",
                     "--output-format",
                     "--permission-prompts",
+                    "--name",
                 )
             )
             help_output = help_text.stdout + (help_text.stderr if self.harness == "opencode" else "")
@@ -292,7 +293,7 @@ class Adapter:
         except (OSError, subprocess.TimeoutExpired, IndexError):
             return None, "Executable probe failed or timed out."
 
-    def argv(self, model, session_id=None, effort=None, candidate=None, smoke=False, permission_profile="default"):
+    def argv(self, model, session_id=None, effort=None, candidate=None, smoke=False, permission_profile="default", *, session_label=None):
         if permission_profile not in ("default", "member"):
             raise AdapterError("unsupported_configuration")
         if not self.command or not model or model.startswith("-"):
@@ -306,6 +307,8 @@ class Adapter:
                     "--model", model, "--agent", "mas"]
             if session_id:
                 args += ["--session", session_id]
+            elif session_label:
+                args += ["--title", session_label]
             if effort:
                 args += ["--variant", effort]
             return args
@@ -328,6 +331,8 @@ class Adapter:
             args += (
                 ["--resume", session_id] if session_id else ["--session-id", candidate]
             )
+            if session_id is None and session_label:
+                args += ["--name", session_label]
             if effort:
                 args += ["--effort", effort]
             if permission_profile == "member" and not smoke:
@@ -379,6 +384,7 @@ class Adapter:
         extra_env=None,
         smoke=False,
         permission_profile="default",
+        session_label=None,
     ):
         started = asyncio.get_running_loop().time()
         candidate = (
@@ -386,7 +392,8 @@ class Adapter:
             if self.harness == "claude" and session_id is None
             else None
         )
-        argv = self.argv(model, session_id, effort, candidate, smoke, permission_profile)
+        argv = self.argv(model, session_id, effort, candidate, smoke, permission_profile,
+                         session_label=session_label)
         env = clean_environment(extra_env)
         if self.harness == "opencode":
             from .opencode import launch_environment

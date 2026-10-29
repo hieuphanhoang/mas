@@ -79,6 +79,14 @@ including `default` for each available harness. Omitted agent prompt_file means
 from role plus preamble, apply creates only missing files and preserves existing
 prompts. Explicit prompt paths must already exist.
 
+Each registered agent has one persisted harness session, created on its first
+managed turn and resumed by explicit session ID on subsequent turns. The service
+never substitutes a fresh session for an existing ID after a failure or restart.
+New Claude/OpenCode sessions are labeled `<project name> / <agent name>` through
+`--name` / `run --title`; the same label is the launch prompt's first line for
+Codex. Resumes do not rename existing sessions or replace their conversation.
+This history-label clarification (AGENT-005 H1) does not change HTTP schemas.
+
 For SSE, first read the project event_cursor, fetch the visible resources, then
 subscribe with `?after=<cursor>`. Apply domain events by event ID, ignore duplicate
 IDs, and refetch invalidated resources; consumers must not replace a newer fetched

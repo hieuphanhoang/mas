@@ -20,6 +20,10 @@ from .busy import ExternalSessions
 TERMINAL = {"completed", "failed", "cancelled"}
 
 
+def session_label(record, agent):
+    return " ".join(f"{record['config']['project']['name']} / {agent['name']}".splitlines())
+
+
 class Runtime:
     def __init__(
         self,
@@ -869,7 +873,7 @@ class Runtime:
             instructions += "The Owner answered the referenced ASK. This is a notification; no reply in that ASK is required. Read the answer and reorient without inventing work.\n"
         else:
             instructions += "Handle the referenced task and write your own attributed reply through the project's unchanged handoff CLI when a member reply is required.\n"
-        result = instructions + json.dumps(context, ensure_ascii=False)
+        result = session_label(record, agent) + "\n" + instructions + json.dumps(context, ensure_ascii=False)
         if len(result.encode("utf-8")) > 1024 * 1024:
             raise Problem(
                 413,
@@ -941,6 +945,7 @@ class Runtime:
             )
             result = await self.adapters[agent["harness"]].run(
                 model=agent["model"],
+                session_label=session_label(record, agent),
                 prompt=prompt,
                 cwd=cwd,
                 session_id=status["session_id"],

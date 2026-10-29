@@ -214,7 +214,15 @@ def test_runtime_start_resume_one_session_and_no_fake_identity(
         assert any(chunk["stream"] == "stderr" for chunk in output["chunks"])
     command = adapters[harness].command
     recorded = Path(command[command.index("--record") + 1])
-    prompt = json.loads(recorded.read_text(encoding="utf-8").splitlines()[0])["prompt"]
+    rows = [json.loads(line) for line in recorded.read_text(encoding="utf-8").splitlines()]
+    prompt = rows[0]["prompt"]
+    name = next(a["name"] for a in config["agents"] if a["id"] == target)
+    label = config["project"]["name"] + " / " + name
+    assert prompt.splitlines()[0] == label
+    assert rows[1]["prompt"].splitlines()[0] == label
+    if harness == "claude":
+        assert rows[0]["argv"][rows[0]["argv"].index("--name") + 1] == label
+        assert "--name" not in rows[1]["argv"]
     assert "Use the agents-collaboration-protocol skill and every skill in your skills list" in prompt
     assert "roster command for calling another member is `mas call <agent> --thread <ID>" in prompt
 
