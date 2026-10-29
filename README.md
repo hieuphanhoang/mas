@@ -302,4 +302,4 @@ npm --prefix frontend run dev                   # page with hot reload on http:/
 npm --prefix frontend run gen:api               # regenerate API types after a contract change
 ```
 
-This repository is developed by AI agents with the same protocol; see `AGENTS.md` and `.handoff/`.
+This repository is developed by AI agents working with the same protocol; `AGENTS.md` holds their notes.
