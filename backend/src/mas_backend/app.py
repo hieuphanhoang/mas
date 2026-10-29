@@ -196,7 +196,7 @@ def create_app(state_dir: Path, contract_dir: Path, static_dir: Path | None = No
             value["adapters"] = [runtime.capability({"harness": h}) for h in ("claude", "codex", "opencode", "gemini", "relay")]
             value["permission_profiles"] = [dict(id=profile, harness=h, label="Fake adapter: " + profile,
                 description="Simulated execution. Real Codex member has Owner-approved network on; default is unchanged.")
-                for h in ("claude", "codex") for profile in ("default", "member")]
+                for h in ("claude", "codex", "opencode") for profile in ("default", "member")]
         return value
 
     @app.get("/api/v1/projects")

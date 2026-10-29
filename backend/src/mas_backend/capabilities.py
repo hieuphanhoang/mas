@@ -8,7 +8,7 @@ def probe_capabilities():
     for harness in ("claude", "codex", "opencode", "gemini", "relay"):
         available, version = "unavailable", None
         reason = "Executable not found on the service PATH."
-        if harness in ("claude", "codex"):
+        if harness in ("claude", "codex", "opencode"):
             version, reason = Adapter(harness).probe()
             if version:
                 available = "available"
@@ -25,6 +25,15 @@ def probe_capabilities():
                 "Only MAS-managed process trees are owned; external sessions are not adopted or killed.",
                 "Role/ownership instructions are workflow context, not OS enforcement."])))
         if available == "available":
+            if harness == "opencode":
+                for profile in ("default", "member"):
+                    profiles.append(dict(id=profile, harness=harness,
+                        label="OpenCode " + profile,
+                        description=("Read/skill tools; other tools denied." if profile == "default" else
+                                     "Read/skill tools, edits, mas call and handoff CLI shell prefixes; other tools denied.") +
+                                    " No sandbox isolation or runtime prompts. Models use provider/model (google/... or ollama/...). "
+                                    "Native Ollama num_ctx=32768 needs separately approved provisioning of ollama-ai-provider-v2@3.6.0; not bundled by MAS."))
+                continue
             profiles.append(dict(id="default", harness=harness, label="Default local profile",
                 description=("Codex workspace-write with approval_policy=never (requests requiring approval denied)." if harness == "codex" else
                              "Claude manual permissions with permission-prompts=none (requests requiring approval denied).") +

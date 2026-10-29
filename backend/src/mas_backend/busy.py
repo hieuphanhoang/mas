@@ -32,7 +32,7 @@ class ExternalSessions:
                     pass
             try:
                 if os.name == "nt":
-                    script = 'Get-CimInstance Win32_Process -Filter "Name=\'claude.exe\' OR Name=\'codex.exe\'" | Select-Object Name,CommandLine | ConvertTo-Json -Compress'
+                    script = 'Get-CimInstance Win32_Process -Filter "Name=\'claude.exe\' OR Name=\'codex.exe\' OR Name=\'opencode.exe\'" | Select-Object Name,CommandLine | ConvertTo-Json -Compress'
                     result = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script], **opts)
                     rows = json.loads(result.stdout or "[]")
                     if isinstance(rows, dict):
@@ -40,7 +40,7 @@ class ExternalSessions:
                     self.processes = [(r["Name"].lower().removesuffix(".exe"), r.get("CommandLine") or "") for r in rows] if result.returncode == 0 else None
                 else:
                     result = subprocess.run(["ps", "-eo", "args="], **opts)
-                    self.processes = [(h, line) for line in result.stdout.splitlines() for h in ("claude", "codex")
+                    self.processes = [(h, line) for line in result.stdout.splitlines() for h in ("claude", "codex", "opencode")
                                       if h in line.split(" ", 1)[0]] if result.returncode == 0 else None
             except (OSError, ValueError, subprocess.TimeoutExpired, TypeError, KeyError):
                 self.processes = None
