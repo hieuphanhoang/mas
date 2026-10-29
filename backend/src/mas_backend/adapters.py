@@ -17,7 +17,7 @@ import signal
 import subprocess
 import uuid
 
-from .guard_paths import handoff_commands, claude_edits
+from .guard_paths import handoff_commands, claude_edits, mas_commands
 
 
 class AdapterError(Exception):
@@ -294,7 +294,7 @@ class Adapter:
         except (OSError, subprocess.TimeoutExpired, IndexError):
             return None, "Executable probe failed or timed out."
 
-    def argv(self, model, session_id=None, effort=None, candidate=None, smoke=False, permission_profile="default", *, owned_paths=(), handoff_paths=()):
+    def argv(self, model, session_id=None, effort=None, candidate=None, smoke=False, permission_profile="default", *, owned_paths=(), handoff_paths=(), cwd=None):
         if permission_profile not in ("default", "member"):
             raise AdapterError("unsupported_configuration")
         if not self.command or not model or model.startswith("-"):
@@ -333,10 +333,10 @@ class Adapter:
             if effort:
                 args += ["--effort", effort]
             if permission_profile == "member" and not smoke:
-                args += ["--allowedTools", "Bash(mas call:*)", "PowerShell(mas call:*)",
+                args += ["--allowedTools",
                          *[tool + "(" + command + ":*)" for tool in ("Bash", "PowerShell")
-                           for command in handoff_commands(handoff_paths)],
-                         *claude_edits(owned_paths)]
+                           for command in [*mas_commands(), *handoff_commands(handoff_paths)]],
+                         *claude_edits(owned_paths, cwd)]
             if smoke:
                 args += [
                     "--tools",
@@ -394,7 +394,7 @@ class Adapter:
         )
         handoff_paths = [Path(cwd) / ".handoff/handoff.py"] if handoff_paths is None else handoff_paths
         argv = self.argv(model, session_id, effort, candidate, smoke, permission_profile,
-                         owned_paths=owned_paths, handoff_paths=handoff_paths)
+                         owned_paths=owned_paths, handoff_paths=handoff_paths, cwd=cwd)
         env = clean_environment(extra_env)
         if self.harness == "opencode":
             from .opencode import launch_environment

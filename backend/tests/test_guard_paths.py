@@ -2,7 +2,8 @@
 import asyncio
 import fnmatch
 import json
-from pathlib import Path
+import os
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 import pytest
 
@@ -20,7 +21,14 @@ def allowed(rules, value):
 
 
 @pytest.mark.parametrize("harness", ["opencode", "claude"])
-def test_member_launch_has_exact_handoff_and_owned_edits(harness, tmp_path):
+def test_member_launch_has_exact_handoff_and_owned_edits(harness, tmp_path, monkeypatch):
+    scripts = tmp_path / "service venv" / "Scripts"
+    monkeypatch.setattr("mas_backend.guard_paths.sysconfig.get_path", lambda _: str(scripts))
+    binary = scripts / ("mas.exe" if os.name == "nt" else "mas")
+    binaries = [binary, binary.with_suffix("")] if os.name == "nt" else [binary]
+    command_paths = {str(p) for p in binaries} | {p.as_posix() for p in binaries}
+    if os.name == "nt":
+        command_paths |= {"/" + p.drive[0].lower() + p.as_posix()[2:] for p in binaries}
     root = tmp_path / "project with space"
     cwd = root / "team"
     cwd.mkdir(parents=True)
@@ -61,17 +69,41 @@ def test_member_launch_has_exact_handoff_and_owned_edits(harness, tmp_path):
             assert allowed(shell, f'uv run --no-project "{value}" reply AGENT-004 --body-file qwen/reply.md')
         assert not allowed(shell, f'uv run --no-project "{root}/elsewhere/handoff.py" reply AGENT-004')
         assert not allowed(shell, f'uv run --no-project "{script}.evil" reply AGENT-004')
+        for value in command_paths:
+            for quoted in (value, '"' + value + '"', "'" + value + "'"):
+                assert allowed(shell, quoted + " call sonnet --thread AGENT-007")
+                assert not allowed(shell, quoted + " serve")
+        assert not allowed(shell, str(scripts / "elsewhere/mas") + " call sonnet")
+        assert not allowed(shell, str(binary) + ".evil call sonnet")
         assert record["config"]["agent"]["mas"]["permission"] == permissions
     else:
         argv = record["argv"]
         assert "Edit" not in argv and "Write" not in argv
-        assert "Edit(//" + owned.as_posix().lstrip("/") + "/**)" in argv
-        assert "Edit(//" + owned_file.as_posix().lstrip("/") + ")" in argv
+        def absolute(path):
+            text = path.as_posix()
+            return "//" + (path.drive[0].lower() + text[2:] if os.name == "nt" else text.lstrip("/"))
+        edits = {rule for rule in argv if rule.startswith("Edit(")}
+        assert edits == {
+            f"Edit({absolute(owned)})", f"Edit({absolute(owned)}/**)",
+            "Edit(qwen)", "Edit(qwen/**)",
+            f"Edit({absolute(owned_file)})",
+            f"Edit({absolute(external)})", f"Edit({absolute(external)}/**)",
+        }
         assert not any(rule.startswith("Write(") for rule in argv)
         for tool in ("Bash", "PowerShell"):
+            for value in command_paths:
+                for quoted in (value, '"' + value + '"', "'" + value + "'"):
+                    assert f"{tool}({quoted} call:*)" in argv
+                    assert f"{tool}({quoted} serve:*)" not in argv
             for value in (str(script), script.as_posix()):
                 assert f'{tool}(uv run --no-project "{value}":*)' in argv
         assert not any("elsewhere" in rule for rule in argv)
+
+
+def test_claude_windows_path_normalization():
+    from mas_backend.guard_paths import posix_drive
+    assert posix_drive(PureWindowsPath("D:/temp/mas-levels/sonnet")) == "/d/temp/mas-levels/sonnet"
+    assert posix_drive(PurePosixPath("/tmp/sonnet")) == "/tmp/sonnet"
 
 
 def test_default_profile_does_not_gain_member_permissions(tmp_path):

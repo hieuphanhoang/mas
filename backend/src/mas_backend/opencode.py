@@ -8,7 +8,7 @@ import json
 from urllib.parse import urlsplit
 from pathlib import Path
 
-from .guard_paths import handoff_commands, opencode_edits, opencode_external
+from .guard_paths import handoff_commands, opencode_edits, opencode_external, mas_commands
 
 
 OLLAMA_SDK = "ollama-ai-provider-v2@3.6.0"
@@ -23,8 +23,9 @@ def launch_environment(model, profile, env, *, cwd=None, owned_paths=(), handoff
     if profile == "member":
         permission.update(edit=opencode_edits(cwd or Path.cwd(), owned_paths),
                           external_directory=opencode_external(owned_paths),
-                          bash={"*": "deny", "mas call *": "allow",
-                                **{command + " *": "allow" for command in handoff_commands(handoff_paths)}})
+                          bash={"*": "deny",
+                                **{command + " *": "allow" for command in
+                                   [*mas_commands(), *handoff_commands(handoff_paths)]}})
     config = dict(
         model=model, small_model=model, share="disabled", autoupdate=False,
         lsp=False, formatter=False, permission=permission,
