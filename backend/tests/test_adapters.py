@@ -41,7 +41,7 @@ def turn(adapter, directory, session=None, timeout=3, cancelled=lambda: False):
     sessions, output = [], []
     result = asyncio.run(
         adapter.run(
-            model="exact-model",
+            model="google/exact-model" if adapter.harness == "opencode" else "exact-model",
             prompt='Unicode caf\u00e9 \U0001f680 "quotes" $()\nnext line',
             cwd=directory,
             session_id=session,
@@ -56,7 +56,7 @@ def turn(adapter, directory, session=None, timeout=3, cancelled=lambda: False):
     return result, sessions, output
 
 
-@pytest.mark.parametrize("harness", ["claude", "codex"])
+@pytest.mark.parametrize("harness", ["claude", "codex", "opencode"])
 def test_probe_start_resume_unicode_and_argv(harness, tmp_path, monkeypatch):
     adapter = fake(harness, tmp_path, "unicode")
     assert adapter.probe() == ("fake-provider 1.0", None)
@@ -85,11 +85,13 @@ def test_probe_start_resume_unicode_and_argv(harness, tmp_path, monkeypatch):
     assert records[0]["has_scoped_token"] is True
     assert "--last" not in records[1]["argv"]
     assert first.session_id in records[1]["argv"]
-    assert records[0]["argv"][records[0]["argv"].index("--model") + 1] == "exact-model"
+    assert records[0]["argv"][records[0]["argv"].index("--model") + 1] == (
+        "google/exact-model" if harness == "opencode" else "exact-model"
+    )
     assert not any("bypass" in arg or "fallback" in arg for arg in records[0]["argv"])
 
 
-@pytest.mark.parametrize("harness", ["claude", "codex"])
+@pytest.mark.parametrize("harness", ["claude", "codex", "opencode"])
 @pytest.mark.parametrize(
     "scenario,reason,uncertain",
     [
@@ -105,19 +107,19 @@ def test_process_and_protocol_failures(harness, scenario, reason, uncertain, tmp
     assert result.uncertain is uncertain
 
 
-@pytest.mark.parametrize("harness", ["claude", "codex"])
+@pytest.mark.parametrize("harness", ["claude", "codex", "opencode"])
 def test_resume_id_mismatch_is_uncertain(harness, tmp_path):
     result, observed, _ = turn(
         fake(harness, tmp_path, "mismatch"),
         tmp_path,
-        session="11111111-1111-4111-8111-111111111111",
+        session="ses_fakeFirst123" if harness == "opencode" else "11111111-1111-4111-8111-111111111111",
     )
     assert result.reason == "session_mismatch"
     assert result.uncertain is True
     assert not observed
 
 
-@pytest.mark.parametrize("harness", ["claude", "codex"])
+@pytest.mark.parametrize("harness", ["claude", "codex", "opencode"])
 def test_stop_and_timeout_own_process_tree(harness, tmp_path):
     started = time.monotonic()
     result, _, _ = turn(
@@ -272,7 +274,7 @@ def test_runtime_busy_queues_stop_and_restart_reconcile(real_runtime, tmp_path):
     assert recovered.status("mas-self", "codex")["queue_paused"] is True
 
 
-@pytest.mark.parametrize("harness", ["claude", "codex"])
+@pytest.mark.parametrize("harness", ["claude", "codex", "opencode"])
 def test_crash_before_session_identity_is_uncertain(harness, tmp_path):
     result, sessions, _ = turn(fake(harness, tmp_path, "crash_before_init"), tmp_path)
     assert result.reason == "process_failed"

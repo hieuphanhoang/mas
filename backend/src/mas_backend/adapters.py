@@ -1,4 +1,4 @@
-"""Headless Claude/Codex adapters. No shell, fallback model or session guessing.
+"""Headless Claude/Codex/OpenCode adapters. No shell or session guessing.
 
 Protocol sources: https://learn.chatgpt.com/docs/non-interactive-mode and
 https://code.claude.com/docs/en/cli-reference; installed CLI --help is also
@@ -10,6 +10,7 @@ import codecs
 from dataclasses import dataclass
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import signal
@@ -48,6 +49,14 @@ def executable(harness):
                                 set(package.glob("codex-win32-*/vendor/*/codex/codex.exe")))
             if len(candidates) == 1 and candidates[0].is_file():
                 return str(candidates[0])
+    if harness == "opencode" and os.name == "nt":
+        parents = [Path(found).parent] if found else []
+        if os.environ.get("APPDATA"):
+            parents.append(Path(os.environ["APPDATA"]) / "npm")
+        for parent in parents:
+            binary = parent / "node_modules/opencode-ai/bin/opencode.exe"
+            if binary.is_file():
+                return str(binary)
     return None
 
 
@@ -76,6 +85,9 @@ def clean_environment(extra=None):
         "CLAUDE_CODE_OAUTH_TOKEN",
         "OPENAI_API_KEY",
         "CODEX_API_KEY",
+        "GEMINI_API_KEY",
+        "GOOGLE_GENERATIVE_AI_API_KEY",
+        "OLLAMA_HOST",
         "HTTPS_PROXY",
         "HTTP_PROXY",
         "NO_PROXY",
@@ -87,6 +99,18 @@ def clean_environment(extra=None):
     if extra:
         env.update(extra)
     return env
+
+
+def valid_session(harness, value):
+    if not isinstance(value, str):
+        return False
+    if harness == "opencode":
+        return re.fullmatch(r"ses_[A-Za-z0-9]{1,120}", value) is not None
+    try:
+        uuid.UUID(value)
+        return True
+    except ValueError:
+        return False
 
 
 class OwnedTree:
@@ -229,12 +253,12 @@ class Adapter:
             help_text = subprocess.run(
                 [
                     *self.command,
-                    *(["exec"] if self.harness == "codex" else []),
+                    *(["exec"] if self.harness == "codex" else ["run"] if self.harness == "opencode" else []),
                     "--help",
                 ],
                 **opts,
             )
-            needed = (
+            needed = ("--format", "--model", "--session", "--agent", "--pure") if self.harness == "opencode" else (
                 ("--json", "--sandbox", "--model")
                 if self.harness == "codex"
                 else (
@@ -244,10 +268,11 @@ class Adapter:
                     "--permission-prompts",
                 )
             )
+            help_output = help_text.stdout + (help_text.stderr if self.harness == "opencode" else "")
             if (
                 version.returncode
                 or help_text.returncode
-                or not all(flag in help_text.stdout for flag in needed)
+                or not all(flag in help_output for flag in needed)
             ):
                 return (
                     None,
@@ -272,11 +297,18 @@ class Adapter:
             raise AdapterError("unsupported_configuration")
         if not self.command or not model or model.startswith("-"):
             raise AdapterError("unsupported_configuration")
-        if session_id:
-            try:
-                uuid.UUID(session_id)
-            except ValueError:
-                raise AdapterError("invalid_session_id", uncertain=True)
+        if session_id and not valid_session(self.harness, session_id):
+            raise AdapterError("invalid_session_id", uncertain=True)
+        if self.harness == "opencode":
+            if not re.fullmatch(r"[^/\s]+/[^\s]+", model) or smoke:
+                raise AdapterError("unsupported_configuration")
+            args = [*self.command, "run", "--pure", "--format", "json",
+                    "--model", model, "--agent", "mas"]
+            if session_id:
+                args += ["--session", session_id]
+            if effort:
+                args += ["--variant", effort]
+            return args
         if self.harness == "claude":
             args = [
                 *self.command,
@@ -356,6 +388,12 @@ class Adapter:
         )
         argv = self.argv(model, session_id, effort, candidate, smoke, permission_profile)
         env = clean_environment(extra_env)
+        if self.harness == "opencode":
+            from .opencode import launch_environment
+            try:
+                env.update(launch_environment(model, permission_profile, env))
+            except ValueError:
+                return Outcome(None, session_id, "unsupported_configuration")
         secrets = [
             v
             for k, v in env.items()
@@ -395,10 +433,10 @@ class Adapter:
                 )
                 if self.harness == "claude":
                     found = event.get("session_id")
+                elif self.harness == "opencode":
+                    found = event.get("sessionID")
                 if found:
-                    try:
-                        uuid.UUID(found)
-                    except (ValueError, TypeError, AttributeError):
+                    if not valid_session(self.harness, found):
                         raise AdapterError("invalid_session_id", uncertain=True)
                     if (
                         (session_id and found != session_id)
@@ -414,6 +452,17 @@ class Adapter:
                         terminal = True
                     elif event.get("type") in ("turn.failed", "error"):
                         protocol_error = "provider_error"
+                elif self.harness == "opencode":
+                    if event.get("type") == "error":
+                        protocol_error = "provider_error"
+                    elif event.get("type") == "step_start":
+                        terminal = False
+                    elif event.get("type") == "step_finish":
+                        reason = (event.get("part") or {}).get("reason")
+                        # A tool step is not the final assistant answer.
+                        terminal = reason in ("stop", "length")
+                        if reason in ("error", "content-filter"):
+                            protocol_error = "provider_error"
                 elif event.get("type") == "result":
                     terminal = True
                     if (

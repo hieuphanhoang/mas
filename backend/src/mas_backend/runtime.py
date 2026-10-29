@@ -38,7 +38,7 @@ class Runtime:
             (
                 adapters
                 if adapters is not None
-                else {h: Adapter(h) for h in ("claude", "codex")}
+                else {h: Adapter(h) for h in ("claude", "codex", "opencode")}
             )
             if real
             else {}
@@ -197,7 +197,7 @@ class Runtime:
                     limitations=[],
                 ),
             )
-        if self.fake and agent["harness"] in ("claude", "codex"):
+        if self.fake and agent["harness"] in ("claude", "codex", "opencode"):
             result.update(
                 availability="available",
                 version="fake-i2",
@@ -223,7 +223,7 @@ class Runtime:
 
     def validate_target(self, project_id, agent_id, *, applied=True, capacity=True):
         record, agent = self.agent(project_id, agent_id)
-        if agent["harness"] in ("opencode", "gemini"):
+        if agent["harness"] == "gemini":
             raise Problem(
                 422,
                 "unsupported_capability",
