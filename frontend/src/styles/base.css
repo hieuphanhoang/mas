@@ -235,44 +235,6 @@ body.resizing { cursor: col-resize; user-select: none; }
 .matrix td, .matrix th { text-align: center; }
 .matrix tbody th { text-align: left; }
 
-/* ---------------------------------------------------------------- 3D chart */
-.chart {
-  position: relative; height: min(58vh, 580px); min-height: 340px;
-  border: 1px solid var(--line); border-radius: var(--radius-lg); overflow: hidden;
-  background: radial-gradient(ellipse at 50% 48%, color-mix(in srgb, var(--chart) 10%, var(--surface)) 0%, var(--surface) 64%);
-  box-shadow: var(--shadow);
-  touch-action: none;
-}
-.chart canvas { display: block; width: 100%; height: 100%; cursor: grab; }
-.chart canvas:active { cursor: grabbing; }
-.chart__labels { position: absolute; inset: 0; pointer-events: none; }
-.chart__label {
-  position: absolute; left: 0; top: 0; pointer-events: auto;
-  transform: translate(-9999px, -9999px);
-  font: 600 12px var(--font); color: var(--ink);
-  background: color-mix(in srgb, var(--surface) 86%, transparent);
-  border: 1px solid var(--line); border-radius: 3px; padding: 2px 7px 3px;
-  white-space: nowrap; cursor: pointer; display: flex; flex-direction: column; line-height: 1.25; text-align: left;
-}
-.chart__label small { font: 400 10px var(--mono); color: var(--ink-2); }
-.chart__label--on { border-color: var(--chart); color: var(--chart); box-shadow: 0 0 0 2px color-mix(in srgb, var(--chart) 18%, transparent); }
-.chart__bearing { position: absolute; left: 0; top: 0; font: 500 10px var(--mono); color: var(--ink-2); letter-spacing: 0.1em; pointer-events: none; transform: translate(-9999px, -9999px); }
-.chart__hud { position: absolute; top: 12px; left: 16px; right: 12px; display: flex; justify-content: space-between; align-items: flex-start; pointer-events: none; gap: 12px; }
-.chart__title { font: 500 10.5px var(--mono); text-transform: uppercase; letter-spacing: 0.16em; color: var(--ink-2); }
-.chart__title strong { display: block; font-family: var(--display); font-stretch: 118%; font-weight: 760; font-size: 19px; letter-spacing: 0.02em; text-transform: none; color: var(--ink); margin-top: 3px; }
-.chart__tools { display: flex; gap: 4px; pointer-events: auto; }
-.chart__tools .btn { background: color-mix(in srgb, var(--surface) 88%, transparent); }
-.chart__legend {
-  position: absolute; left: 14px; bottom: 12px; display: flex; flex-wrap: wrap; gap: 4px 14px;
-  font: 400 11px var(--mono); color: var(--ink-2); max-width: calc(100% - 28px);
-  background: color-mix(in srgb, var(--surface) 84%, transparent); padding: 6px 10px; border-radius: var(--radius); border: 1px solid var(--line);
-}
-.chart__legend span { display: inline-flex; align-items: center; gap: 5px; }
-.chart__swatch { width: 16px; height: 0; border-top: 2px solid var(--magenta); display: inline-block; }
-.chart__swatch--route { border-top: 1px dashed var(--chart); }
-.chart__fallback { position: absolute; inset: 0; display: grid; place-items: center; color: var(--ink-2); text-align: center; padding: 20px; }
-.chart__hint { position: absolute; right: 14px; bottom: 14px; font: 400 11px var(--mono); color: var(--ink-2); }
-@media (max-width: 860px) { .chart__hint { display: none; } }
 
 .glyph { flex: none; display: inline-block; vertical-align: -2px; }
 

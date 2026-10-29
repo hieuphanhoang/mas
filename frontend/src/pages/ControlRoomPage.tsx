@@ -10,10 +10,7 @@ import type { AgentStatus, AgentView, Delivery, ThreadRef, ThreadSummary } from 
 import { useProjectEvents } from "../api/useProjectEvents";
 import { ProjectPicker } from "../components/ProjectPicker";
 import { Empty, ErrorNote, Loading, Pill, fmtTime } from "../components/ui";
-import { AgentChart, type ChartAgent, type ChartCall } from "../components/AgentChart";
-import { Icon, type Harness } from "../components/icons";
-
-const ACTIVE = new Set(["queued", "dispatching", "running"]);
+import { Glyph, Icon, type Harness } from "../components/icons";
 
 // Agent panel width: dragged by the Owner, remembered in this browser only.
 const DRAWER_KEY = "mas.drawerWidth";
@@ -34,18 +31,12 @@ export function ControlRoomPage() {
   const nav = useNavigate();
   const project = useProject(projectId);
   const agents = useAgents(projectId);
-  const allCalls = useCalls(projectId);
   const stream = useProjectEvents(projectId, agents.data?.event_cursor, agents.dataUpdatedAt);
   const [selected, setSelected] = useState<string | null>(null);
   const [level, setLevel] = useState<string>("all");
   const [drawerW, setDrawerW] = useDrawerWidth();
 
   const levels = useMemo(() => (project.data?.config.levels ?? []).slice().sort((a, b) => a.order - b.order), [project.data]);
-  const chartAgents = useMemo<ChartAgent[]>(() => (agents.data?.items ?? []).map((a) => ({
-    id: a.config.id, name: a.config.name, model: a.config.model, harness: a.config.harness as Harness,
-    state: a.status.state, levelIndex: Math.max(0, levels.findIndex((l) => l.id === a.config.level_id)),
-  })), [agents.data, levels]);
-  const chartCalls = useMemo<ChartCall[]>(() => toChartCalls(allCalls.data?.items ?? []), [allCalls.data]);
   const lanes = useMemo(() => {
     const items = agents.data?.items ?? [];
     return level === "all" ? items : items.filter((a) => a.config.level_id === level);
@@ -67,20 +58,6 @@ export function ControlRoomPage() {
       <ErrorNote error={project.error ?? agents.error} />
       {agents.isLoading && <Loading />}
       {agents.data && lanes.length === 0 && <Empty>No agents in this project yet. Add levels and agents on the <Link to={`/projects/${projectId}`}>project page</Link>.</Empty>}
-      {project.data && chartAgents.length > 0 && (
-        <div style={{ marginTop: 16 }}>
-          <AgentChart
-            title={project.data.config.project.name}
-            subtitle={`${chartAgents.length} agents - ${chartCalls.length} call${chartCalls.length === 1 ? "" : "s"} in flight`}
-            agents={chartAgents}
-            levelCount={Math.max(1, levels.length)}
-            edges={project.data.config.call_policy.mode === "independent" ? [] : project.data.config.call_policy.allowed_edges}
-            calls={chartCalls}
-            selected={selected}
-            onSelect={setSelected}
-          />
-        </div>
-      )}
       <div className={`room__grid ${selectedAgent ? "room__grid--drawer" : ""}`} style={{ "--drawer-w": `${drawerW}px` } as React.CSSProperties}>
         <div className="lanes">
           {levels.filter((l) => level === "all" || l.id === level).map((l) => (
@@ -139,15 +116,7 @@ function StreamPill({ state, reason }: { state: string; reason: string | null })
   return <Pill tone={tone}>live: {state}{reason ? ` (${reason})` : ""}</Pill>;
 }
 
-/** Calls in flight for the team chart. Only a null parent means the Owner started the call; a parent
- *  outside the loaded page is unknown, so that call gets no arc rather than a false one (AGENT-004 #1). */
-export function toChartCalls(items: Pick<Delivery, "delivery_id" | "agent_id" | "parent_delivery_id" | "state">[]): ChartCall[] {
-  const agentOf = new Map(items.map((d) => [d.delivery_id, d.agent_id]));
-  return items.filter((d) => ACTIVE.has(d.state)).flatMap((d) => {
-    if (d.parent_delivery_id && !agentOf.has(d.parent_delivery_id)) return [];
-    return [{ from: d.parent_delivery_id ? agentOf.get(d.parent_delivery_id)! : null, to: d.agent_id, live: d.state !== "queued" }];
-  });
-}
+const TONE_VAR = { ok: "var(--ok)", warn: "var(--amber)", bad: "var(--alert)", off: "var(--offline)", info: "var(--chart)" } as const;
 
 export function lampTone(s: AgentStatus["state"]): "ok" | "warn" | "bad" | "off" | "info" {
   switch (s) {
@@ -163,7 +132,7 @@ function Lane({ a, on, onSelect }: { a: AgentView; on: boolean; onSelect: () => 
   const s = a.status;
   return (
     <button className={`lane ${on ? "lane--on" : ""}`} onClick={onSelect}>
-      <i className={`lamp lamp--${lampTone(s.state)}`} title={s.state} />
+      <Glyph harness={a.config.harness as Harness} size={16} color={TONE_VAR[lampTone(s.state)]} title={`${a.config.harness}, ${s.state}`} />
       <span className="lane__name">{a.config.name}</span>
       <span className="lane__meta muted small">{a.config.harness} - {a.config.model}{a.config.effort ? ` (${a.config.effort})` : ""}</span>
       <span className="lane__state">
