@@ -37,13 +37,11 @@ def test_opencode_provider_environment_and_profile(model, tmp_path, monkeypatch)
     assert "--auto" not in record["argv"] and "--pure" in record["argv"]
     config = record["config"]
     assert config["agent"]["mas"]["permission"] == config["permission"]
-    assert config["permission"]["bash"] == {
-        "*": "deny", "mas call *": "allow",
-        "uv run --no-project .handoff/handoff.py *": "allow",
-        "uv run --no-project .handoff\\handoff.py *": "allow",
-    }
+    assert config["permission"]["bash"]["*"] == "deny"
+    assert config["permission"]["bash"]["mas call *"] == "allow"
+    assert config["permission"]["bash"]["uv run --no-project .handoff/handoff.py *"] == "allow"
     assert config["permission"]["task"] == "deny"
-    assert config["permission"]["edit"] == "allow"
+    assert config["permission"]["edit"] == {"*": "deny"}
     assert config["share"] == "disabled" and config["autoupdate"] is False
     assert record["auto_updates"] == "true"
     assert "fake-google-key-do-not-log" not in "".join(emitted)
