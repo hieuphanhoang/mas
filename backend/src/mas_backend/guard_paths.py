@@ -1,6 +1,28 @@
 """Exact launch paths for harness workflow permissions, not OS isolation."""
 import os
 from pathlib import Path
+import sysconfig
+
+
+def posix_drive(path):
+    text = path.as_posix()
+    if len(path.drive) == 2 and path.drive[1] == ":":
+        return "/" + text[0].lower() + text[2:]
+    return text
+
+
+def mas_commands():
+    # Only this service environment's entry point, never a PATH search result.
+    binary = Path(sysconfig.get_path("scripts")) / ("mas.exe" if os.name == "nt" else "mas")
+    paths = [binary, binary.with_suffix("")] if os.name == "nt" else [binary]
+    commands = {"mas call"}
+    for path in paths:
+        for text in (str(path), path.as_posix(), posix_drive(path)):
+            for quoted in (text, '"' + text + '"', "'" + text + "'"):
+                commands.add(quoted + " call")
+                if quoted != text:
+                    commands.add("& " + quoted + " call")
+    return sorted(commands)
 
 
 def handoff_commands(paths):
@@ -43,12 +65,16 @@ def opencode_external(owned_paths):
     return rules
 
 
-def claude_edits(owned_paths):
+def claude_edits(owned_paths, cwd=None):
     rules = []
+    cwd = Path(cwd).resolve() if cwd is not None else None
     for value in owned_paths:
         path = Path(value).resolve()
-        absolute = "//" + path.as_posix().lstrip("/")
-        rules.append("Edit(" + absolute + ")")
-        if not path.is_file():
-            rules.append("Edit(" + absolute.rstrip("/") + "/**)")
+        patterns = ["//" + posix_drive(path).lstrip("/")]
+        if cwd is not None and path.is_relative_to(cwd):
+            patterns.append(path.relative_to(cwd).as_posix())
+        for pattern in patterns:
+            rules.append("Edit(" + pattern + ")")
+            if not path.is_file():
+                rules.append("Edit(" + pattern.rstrip("/") + "/**)")
     return rules

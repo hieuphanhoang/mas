@@ -865,6 +865,7 @@ class Runtime:
             "Use the agents-collaboration-protocol skill and every skill in your skills list to read the roster, protocol and assigned thread and write your reply. "
             "Your roster command for calling another member is `mas call <agent> --thread <ID> [--log <id>] [--note TEXT]`; reply with `uv run --no-project .handoff/handoff.py reply <ID> --frm YOUR_NAME --body-file reply.md --status answered` from that log's folder. "
             "Use the thread ID (for example AGENT-004), not its file path, as <ID>. Save reply.md inside a path you own; never hand-edit the shared log or invent a timestamp. "
+            "Report what happened after you act; if an action fails, say so in the thread. "
         )
         if delivery["purpose"] == "notification":
             instructions += "The Owner answered the referenced ASK. This is a notification; no reply in that ASK is required. Read the answer and reorient without inventing work.\n"
