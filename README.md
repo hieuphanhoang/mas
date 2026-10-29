@@ -203,7 +203,15 @@ From there the agents work on their own:
 
 ## 9. Watch the work
 
-**Control room** - one lane per agent, grouped by level:
+**Control room** - opens on the **team chart**, a 3D view of the project drawn like a navigation
+chart. You are the compass rose at the centre; each level is a ring, each agent a station on its
+ring. The station's shape is its tool (diamond Claude Code, square Codex, triangle opencode, circle
+relay) and its colour is its state. Dashed arcs are the allowed call routes; a magenta tracer flying
+along an arc is a call in progress. Drag to turn it, scroll to zoom, click a station to open the
+agent. If your browser has no WebGL the chart is replaced by a short note and the list below works
+as before.
+
+Below the chart, one lane per agent, grouped by level:
 
 | Lamp | Meaning |
 |---|---|

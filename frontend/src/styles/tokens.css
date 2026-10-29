@@ -1,44 +1,78 @@
-/* Design tokens. Light by default; dark follows the OS unless data-theme forces one. */
+/* MAS design tokens - "chart room".
+ * Day chart: cool drafting film, chart-blue ink, aviation-chart magenta for live calls.
+ * Night chart: the same chart read under a dim panel light.
+ * State colours are fixed meanings: idle = ok, busy = amber, needs input / error = alert,
+ * live call = magenta, offline = gray. Harness is never a colour; it is a shape (see Glyph). */
 :root {
-  --bg: #f6f5f1;
-  --surface: #ffffff;
-  --surface-2: #eeece6;
-  --ink: #1d1c1a;
-  --ink-2: #5a5853;
-  --line: #d9d6cd;
-  --accent: #1f5f8b;
-  --accent-ink: #ffffff;
-  --busy: #c9821c;
-  --idle: #4f8a4b;
-  --needs-input: #b23a3a;
-  --offline: #9a978f;
-  --radius: 6px;
-  --font: ui-sans-serif, "Segoe UI", system-ui, sans-serif;
-  --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --paper: #edf1f4;
+  --surface: #f9fbfc;
+  --surface-2: #e3e9ee;
+  --ink: #12243d;
+  --ink-2: #56677d;
+  --line: #c3ced9;
+  --line-strong: #93a3b6;
+  --chart: #1f4f8f;
+  --chart-ink: #ffffff;
+  --magenta: #b01f78;
+  --amber: #b76e00;
+  --alert: #c62e2e;
+  --ok: #1e7a4f;
+  --offline: #8a97a6;
+  --shadow: 0 1px 0 rgba(18, 36, 61, 0.04), 0 8px 24px -12px rgba(18, 36, 61, 0.18);
+
+  /* legacy aliases used by existing components */
+  --bg: var(--paper);
+  --accent: var(--chart);
+  --accent-ink: var(--chart-ink);
+  --busy: var(--amber);
+  --idle: var(--ok);
+  --needs-input: var(--alert);
+
+  --radius: 4px;
+  --radius-lg: 10px;
+  --rail: 76px;
+  --font: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --display: "Archivo", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", "Cascadia Mono", Consolas, monospace;
+  color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #15171a;
-    --surface: #1d2024;
-    --surface-2: #262a2f;
-    --ink: #e8e6e1;
-    --ink-2: #a39f97;
-    --line: #353a40;
-    --accent: #6fb1e0;
-    --accent-ink: #0d1115;
-    --offline: #6b6f75;
+    --paper: #0a1322;
+    --surface: #0f1a2c;
+    --surface-2: #16233a;
+    --ink: #dce6f2;
+    --ink-2: #8c9bb0;
+    --line: #22324b;
+    --line-strong: #3a4e6c;
+    --chart: #6fa3e8;
+    --chart-ink: #07101d;
+    --magenta: #f05bb5;
+    --amber: #f0a93a;
+    --alert: #ff6b5e;
+    --ok: #4cc38a;
+    --offline: #5d6b80;
+    --shadow: 0 1px 0 rgba(0, 0, 0, 0.3), 0 10px 30px -14px rgba(0, 0, 0, 0.6);
+    color-scheme: dark;
   }
 }
 
 :root[data-theme="dark"] {
-  --bg: #15171a;
-  --surface: #1d2024;
-  --surface-2: #262a2f;
-  --ink: #e8e6e1;
-  --ink-2: #a39f97;
-  --line: #353a40;
-  --accent: #6fb1e0;
-  --accent-ink: #0d1115;
-  --offline: #6b6f75;
+  --paper: #0a1322;
+  --surface: #0f1a2c;
+  --surface-2: #16233a;
+  --ink: #dce6f2;
+  --ink-2: #8c9bb0;
+  --line: #22324b;
+  --line-strong: #3a4e6c;
+  --chart: #6fa3e8;
+  --chart-ink: #07101d;
+  --magenta: #f05bb5;
+  --amber: #f0a93a;
+  --alert: #ff6b5e;
+  --ok: #4cc38a;
+  --offline: #5d6b80;
+  --shadow: 0 1px 0 rgba(0, 0, 0, 0.3), 0 10px 30px -14px rgba(0, 0, 0, 0.6);
+  color-scheme: dark;
 }
