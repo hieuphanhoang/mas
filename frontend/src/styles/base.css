@@ -273,3 +273,10 @@ fieldset.field { border: 0; padding: 0; margin: 0; }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+
+/* ---------------------------------------------------------------- agent session + conversation */
+.session { border: 1px solid var(--line); border-left: 3px solid var(--chart); border-radius: var(--radius); padding: 9px 11px; display: flex; flex-direction: column; gap: 8px; background: color-mix(in srgb, var(--surface-2) 45%, transparent); }
+.session__label { font: 500 11px var(--mono); text-transform: uppercase; letter-spacing: 0.14em; color: var(--ink-2); }
+.session__cmd { display: block; font: 12px/1.45 var(--mono); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 8px; white-space: pre-wrap; word-break: break-all; user-select: all; }
+.conversation { max-height: 42vh; overflow: auto; border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 12px; background: var(--surface); font-size: 13px; }
+.conversation .md p { margin: 5px 0; }

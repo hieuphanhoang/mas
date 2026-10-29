@@ -1,14 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { idempotencyKey } from "../api/client";
-import { useAgentAction, useAgents, useCalls, useLogIndex, useLogs, useProject, useRunOutput } from "../api/queries";
+import { idempotencyKey, post } from "../api/client";
+import { useAgentAction, useAgents, useCalls, useLogIndex, useLogs, useProject, useRunOutput, useThread } from "../api/queries";
+import { useMutation } from "@tanstack/react-query";
 import { textToPathRefs } from "../lib/projectConfig";
-import type { AgentStatus, AgentView, Delivery, ThreadRef } from "../api/types";
+import { resumeCommand } from "../lib/resume";
+import { Markdown } from "../lib/markdown";
+import type { AgentStatus, AgentView, Delivery, ThreadRef, ThreadSummary } from "../api/types";
 import { useProjectEvents } from "../api/useProjectEvents";
 import { ProjectPicker } from "../components/ProjectPicker";
 import { Empty, ErrorNote, Loading, Pill, fmtTime } from "../components/ui";
 import { AgentChart, type ChartAgent, type ChartCall } from "../components/AgentChart";
-import { Glyph, type Harness } from "../components/icons";
+import { Glyph, Icon, type Harness } from "../components/icons";
 
 const ACTIVE = new Set(["queued", "dispatching", "running"]);
 
@@ -78,7 +81,8 @@ export function ControlRoomPage() {
           ))}
         </div>
         {/* key = project + agent: drafts, conversation thread and call form never carry over to another agent (AGENT-005 #2) */}
-        {selectedAgent && projectId && <Drawer key={`${projectId}/${selectedAgent.config.id}`} projectId={projectId} a={selectedAgent} onClose={() => setSelected(null)} />}
+        {selectedAgent && projectId && <Drawer key={`${projectId}/${selectedAgent.config.id}`} projectId={projectId} a={selectedAgent} onClose={() => setSelected(null)}
+          workingFolder={project.data?.config.folders.find((f) => f.id === selectedAgent.config.cwd_folder_id)?.path ?? null} />}
       </div>
     </section>
   );
@@ -130,7 +134,66 @@ function Lane({ a, on, onSelect }: { a: AgentView; on: boolean; onSelect: () => 
   );
 }
 
-function Drawer({ projectId, a, onClose }: { projectId: string; a: AgentView; onClose: () => void }) {
+/** The agent's own session: id, generation, the command to open it yourself, and (when the service
+ *  supports it) a button that opens it in a terminal window on this PC. */
+function SessionPanel({ projectId, a, workingFolder }: { projectId: string; a: AgentView; workingFolder: string | null }) {
+  const s = a.status;
+  const cmd = resumeCommand({ harness: a.config.harness, sessionId: s.session_id, model: a.config.model, workingFolder });
+  const [copied, setCopied] = useState(false);
+  const open = useMutation({
+    mutationFn: async () => (await post<{ command?: string }>(`/projects/${encodeURIComponent(projectId)}/agents/${encodeURIComponent(a.config.id)}/resume-window`, undefined, { idempotencyKey: idempotencyKey() })).data,
+  });
+  const busy = s.state === "busy" || s.state === "starting" || s.state === "stopping";
+  const copy = async () => {
+    if (!cmd) return;
+    try { await navigator.clipboard.writeText(cmd); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch { setCopied(false); }
+  };
+  return (
+    <div className="session">
+      <div className="row row--between">
+        <span className="session__label">Session</span>
+        <span className="muted small mono">{s.session_id ? `${s.session_id.slice(0, 18)}${s.session_id.length > 18 ? "..." : ""} - gen ${s.session_generation ?? "-"}` : "none yet - it starts on the first call"}</span>
+      </div>
+      {cmd && (
+        <>
+          <code className="session__cmd">{cmd}</code>
+          <div className="row">
+            <button className="btn" onClick={copy}><Icon name={copied ? "check" : "output"} size={15} />{copied ? "Copied" : "Copy resume command"}</button>
+            {a.capabilities.attach && (
+              <button className="btn btn--primary" disabled={busy || open.isPending} onClick={() => open.mutate()} title={busy ? "Wait until the agent finishes its turn" : "Opens this agent's session in a new terminal window"}>
+                <Icon name="call" size={15} />Open in terminal
+              </button>
+            )}
+          </div>
+          <div className="muted small">
+            {busy ? "The agent is working now. Open its session when it is idle: two writers on one session break it." : "While you have the session open, MAS holds new calls to this agent. Close it to let them run."}
+          </div>
+          <ErrorNote error={open.error} />
+          {open.data && <div className="note note--ok small">Opened in a new terminal window.</div>}
+        </>
+      )}
+    </div>
+  );
+}
+
+/** The chat conversation: the thread rendered with the agent's replies, kept live by the SSE stream. */
+function Conversation({ r }: { r: ThreadRef }) {
+  const q = useThread(r);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => { box.current?.scrollTo({ top: box.current.scrollHeight }); }, [q.data?.metadata.revision]);
+  if (q.isLoading) return <Loading />;
+  if (q.error) return <ErrorNote error={q.error} />;
+  if (!q.data) return null;
+  const body = q.data.markdown.split(/\n---\n/).slice(1).join("\n---\n") || q.data.markdown;
+  return (
+    <div className="conversation" ref={box}>
+      <Markdown source={body} />
+      {q.data.metadata.owes_reply && <div className="muted small">waiting for {q.data.metadata.owes_reply}</div>}
+    </div>
+  );
+}
+
+function Drawer({ projectId, a, onClose, workingFolder }: { projectId: string; a: AgentView; onClose: () => void; workingFolder: string | null }) {
   const act = useAgentAction(projectId);
   const calls = useCalls(projectId, a.config.id);
   const logs = useLogs(projectId);
@@ -142,6 +205,10 @@ function Drawer({ projectId, a, onClose }: { projectId: string; a: AgentView; on
   const s = a.status;
   const member = a.config.log_duty === "member";
   const effectiveLog = logId || a.config.log_ids[0] || logs.data?.items[0]?.log_id || "";
+  const allThreads = useLogIndex(projectId, member ? effectiveLog : undefined, "all");
+  const theirThreads = ((allThreads.data?.items ?? []) as ThreadSummary[])
+    .filter((t) => t.from_name === a.config.name || t.to_name === a.config.name || (t.to_name ?? "").split(",").map((x) => x.trim()).includes(a.config.name))
+    .slice(0, 30);
 
   const sendChat = (e: React.FormEvent) => {
     e.preventDefault();
@@ -163,6 +230,7 @@ function Drawer({ projectId, a, onClose }: { projectId: string; a: AgentView; on
         <span className="muted small">observed {fmtTime(s.observed_at)} via {s.source}</span>
       </div>
       {s.reason && <div className="note small">{s.reason}</div>}
+      <SessionPanel projectId={projectId} a={a} workingFolder={workingFolder} />
       <div className="row">
         <button className="btn" disabled={!member || act.wake.isPending} onClick={() => act.wake.mutate({ agent: a.config.id, key: idempotencyKey() })}>Wake up</button>
         <button className="btn" disabled={act.stop.isPending} onClick={() => act.stop.mutate({ agent: a.config.id, key: idempotencyKey() })}>Stop</button>
@@ -207,13 +275,24 @@ function Drawer({ projectId, a, onClose }: { projectId: string; a: AgentView; on
             <>
               <div className="muted small">
                 {threadRef ? <>Conversation thread <code>{threadRef.log_id}/{threadRef.thread_id}</code> <button type="button" className="linklike" onClick={() => setThreadRef(null)}>(start a new one)</button></> : (
-                  <label className="field field--inline"><span>New thread in log</span>
-                    <select value={effectiveLog} onChange={(e) => setLogId(e.target.value)}>
-                      {(logs.data?.items ?? []).map((l) => <option key={l.log_id} value={l.log_id}>{l.log_id}</option>)}
-                    </select>
-                  </label>
+                  <div className="row">
+                    <label className="field field--inline"><span>New thread in log</span>
+                      <select value={effectiveLog} onChange={(e) => setLogId(e.target.value)}>
+                        {(logs.data?.items ?? []).map((l) => <option key={l.log_id} value={l.log_id}>{l.log_id}</option>)}
+                      </select>
+                    </label>
+                    {theirThreads.length > 0 && (
+                      <label className="field field--inline"><span>or continue</span>
+                        <select value="" onChange={(e) => { const t = theirThreads.find((x) => x.thread_ref.thread_id === e.target.value); if (t) setThreadRef(t.thread_ref); }}>
+                          <option value="">a thread with {a.config.name}</option>
+                          {theirThreads.map((t) => <option key={t.thread_ref.thread_id} value={t.thread_ref.thread_id}>{t.thread_ref.thread_id} {t.title}</option>)}
+                        </select>
+                      </label>
+                    )}
+                  </div>
                 )}
               </div>
+              {threadRef && <Conversation r={threadRef} />}
               <textarea rows={5} value={text} onChange={(e) => setText(e.target.value)} required placeholder="Your words are written verbatim into the thread and become the agent's next turn (queued if busy)." />
               <ErrorNote error={act.message.error} />
               <div className="row"><button className="btn btn--primary" disabled={act.message.isPending || !effectiveLog}>Send</button></div>
