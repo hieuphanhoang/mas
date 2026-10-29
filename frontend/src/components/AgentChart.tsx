@@ -305,7 +305,10 @@ export function AgentChart({ title, subtitle, agents, levelCount, edges, calls, 
       for (const [id, el] of labelRefs.current) {
         const p = id === OWNER_ID ? OWNER_POS : id.startsWith("bearing:") ? bearingPos(id, s.outer, levelCount) : s.positions.get(id);
         const q = p ? project(viewProj, p, width, height) : null;
-        if (!q || q.x < -40 || q.y < -40 || q.x > width + 40 || q.y > height + 40) { el.style.transform = "translate(-9999px,-9999px)"; continue; }
+        const out = !q || q.x < 4 || q.y < 4 || q.x > width - 4 || q.y > height - 4;
+        // A station turned out of view is not a keyboard stop (AGENT-004 #2); the list below keeps it reachable.
+        if (el instanceof HTMLButtonElement) { el.tabIndex = out ? -1 : 0; el.setAttribute("aria-hidden", out ? "true" : "false"); }
+        if (out || !q) { el.style.transform = "translate(-9999px,-9999px)"; continue; }
         const dx = id.startsWith("bearing:") ? -10 : id === OWNER_ID ? -14 : 14;
         const dy = id.startsWith("bearing:") ? -6 : id === OWNER_ID ? 14 : -12;
         el.style.transform = `translate(${Math.round(q.x + dx)}px, ${Math.round(q.y + dy)}px)`;

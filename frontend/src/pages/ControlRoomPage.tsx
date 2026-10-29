@@ -27,15 +27,7 @@ export function ControlRoomPage() {
     id: a.config.id, name: a.config.name, model: a.config.model, harness: a.config.harness as Harness,
     state: a.status.state, levelIndex: Math.max(0, levels.findIndex((l) => l.id === a.config.level_id)),
   })), [agents.data, levels]);
-  const chartCalls = useMemo<ChartCall[]>(() => {
-    const items = allCalls.data?.items ?? [];
-    const agentOf = new Map(items.map((d) => [d.delivery_id, d.agent_id]));
-    return items.filter((d) => ACTIVE.has(d.state)).map((d) => ({
-      from: d.parent_delivery_id ? agentOf.get(d.parent_delivery_id) ?? null : null,
-      to: d.agent_id,
-      live: d.state !== "queued",
-    }));
-  }, [allCalls.data]);
+  const chartCalls = useMemo<ChartCall[]>(() => toChartCalls(allCalls.data?.items ?? []), [allCalls.data]);
   const lanes = useMemo(() => {
     const items = agents.data?.items ?? [];
     return level === "all" ? items : items.filter((a) => a.config.level_id === level);
@@ -95,6 +87,16 @@ export function ControlRoomPage() {
 function StreamPill({ state, reason }: { state: string; reason: string | null }) {
   const tone = state === "open" ? "ok" : state === "connecting" ? "warn" : state === "reset" ? "bad" : "off";
   return <Pill tone={tone}>live: {state}{reason ? ` (${reason})` : ""}</Pill>;
+}
+
+/** Calls in flight for the team chart. Only a null parent means the Owner started the call; a parent
+ *  outside the loaded page is unknown, so that call gets no arc rather than a false one (AGENT-004 #1). */
+export function toChartCalls(items: Pick<Delivery, "delivery_id" | "agent_id" | "parent_delivery_id" | "state">[]): ChartCall[] {
+  const agentOf = new Map(items.map((d) => [d.delivery_id, d.agent_id]));
+  return items.filter((d) => ACTIVE.has(d.state)).flatMap((d) => {
+    if (d.parent_delivery_id && !agentOf.has(d.parent_delivery_id)) return [];
+    return [{ from: d.parent_delivery_id ? agentOf.get(d.parent_delivery_id)! : null, to: d.agent_id, live: d.state !== "queued" }];
+  });
 }
 
 const TONE_VAR = { ok: "var(--ok)", warn: "var(--amber)", bad: "var(--alert)", off: "var(--offline)", info: "var(--chart)" } as const;
