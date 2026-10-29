@@ -20,7 +20,7 @@ if "--version" in sys.argv:
     raise SystemExit(0)
 if "--help" in sys.argv:
     print(
-        "SESSION_ID --json --sandbox --model --session-id --resume --output-format --permission-prompts --format --session --agent --pure",
+        "SESSION_ID --json --sandbox --model --session-id --resume --output-format --permission-prompts --format --session --agent --pure --title --name",
         file=sys.stderr if option("--harness") == "opencode" else sys.stdout,
     )
     raise SystemExit(0)

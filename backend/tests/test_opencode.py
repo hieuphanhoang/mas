@@ -119,3 +119,7 @@ def test_opencode_runtime_start_resume_and_busy_queue(real_runtime, tmp_path):
     assert len(rows) == 2
     assert "--session" not in rows[0]["argv"]
     assert rows[1]["argv"][rows[1]["argv"].index("--session") + 1] == session
+    label = config["project"]["name"] + " / " + config["agents"][1]["name"]
+    assert rows[0]["argv"][rows[0]["argv"].index("--title") + 1] == label
+    assert "--title" not in rows[1]["argv"]
+    assert rows[0]["prompt"].splitlines()[0] == label

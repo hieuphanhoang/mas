@@ -1,9 +1,7 @@
 # Pytest changes
 
-Compared with the previous full run: 96 passed, zero failed (was 95 passed and
-one CRLF assertion failure in the new test). Owner replies use the packaged CLI
-both without a target CLI and with a deliberately failing target CLI present.
-Normal-wheel inspection also confirms the licensed CLI is shipped without any
-private .handoff files. No package was installed.
+Compared with the previous test/levels run: still 96 passed, no regressions.
+The merged suite now also checks first-start labels and unchanged session IDs
+on resume, retaining all guard and packaged-CLI regression coverage.
 The existing Starlette/httpx deprecation warning is unchanged.
 No saved test reports were replaced or deleted; output is in the terminal.
