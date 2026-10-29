@@ -60,7 +60,7 @@ def create_app(state_dir: Path, contract_dir: Path, static_dir: Path | None = No
     app.state.store, app.state.validator = store, validator
     app.state.scaffold, app.state.logs = scaffold, logs
     app.state.capabilities = capabilities if capabilities is not None else probe_capabilities()
-    handoff = Handoff(store, logs, Path(__file__).resolve().parents[3] / ".handoff/handoff.py")
+    handoff = Handoff(store, logs, Path(__file__).with_name("vendor_handoff.py"))
     runtime = Runtime(store, logs, handoff, app.state.capabilities, fake=fake_adapter, delay=fake_delay,
                       real=real_adapters, adapters=adapters)
     events = Events(store)

@@ -1,9 +1,9 @@
 # Pytest changes
 
-Compared with the previous successful full run: 95 passed (was 94), no regressions.
-Fake launches now cover normalized Claude Windows edit paths, cwd-relative owned
-paths, and exact absolute service mas call rules for Claude and OpenCode.
-The first attempt could not create D:/temp in the sandbox (90 setup errors and
-one environment-dependent failure); the approved rerun passes all 95 tests.
+Compared with the previous full run: 96 passed, zero failed (was 95 passed and
+one CRLF assertion failure in the new test). Owner replies use the packaged CLI
+both without a target CLI and with a deliberately failing target CLI present.
+Normal-wheel inspection also confirms the licensed CLI is shipped without any
+private .handoff files. No package was installed.
 The existing Starlette/httpx deprecation warning is unchanged.
 No saved test reports were replaced or deleted; output is in the terminal.
