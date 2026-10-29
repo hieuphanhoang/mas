@@ -239,6 +239,8 @@ def test_runtime_launch_uses_workspace_local_offline_uv_cache(real_runtime, monk
         launch["cwd"] / ".agents" / "mas" / "uv-cache"
     )
     assert launch["extra_env"]["UV_OFFLINE"] == "true"
+    assert launch["owned_paths"]
+    assert launch["handoff_paths"] == [launch["cwd"] / ".handoff/handoff.py"]
 
 
 def test_runtime_busy_queues_stop_and_restart_reconcile(real_runtime, tmp_path):

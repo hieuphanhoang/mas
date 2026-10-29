@@ -25,7 +25,7 @@ def test_member_profile_rules_and_capabilities(monkeypatch):
     assert "Bash(mas call:*)" in argv
     assert "PowerShell(uv run --no-project .handoff/handoff.py:*)" in argv
     assert "PowerShell(mas call:*)" in argv
-    assert "Edit" in argv and "Write" in argv
+    assert "Edit" not in argv and "Write" not in argv
     assert argv[argv.index("--permission-prompts") + 1] == "none"
     assert "--allowedTools" not in adapter.argv("model", candidate="uuid")
     codex = Adapter("codex", ["fake-codex"])

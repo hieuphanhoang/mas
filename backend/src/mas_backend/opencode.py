@@ -6,24 +6,25 @@ The native Ollama SDK must be provisioned separately with Owner approval.
 """
 import json
 from urllib.parse import urlsplit
+from pathlib import Path
+
+from .guard_paths import handoff_commands, opencode_edits, opencode_external
 
 
 OLLAMA_SDK = "ollama-ai-provider-v2@3.6.0"
 
 
-def launch_environment(model, profile, env):
+def launch_environment(model, profile, env, *, cwd=None, owned_paths=(), handoff_paths=()):
     permission = dict.fromkeys(
         ("*", "bash", "edit", "task", "question", "webfetch", "websearch",
          "external_directory", "lsp", "todowrite", "todoread"), "deny"
     )
     permission.update(dict.fromkeys(("read", "glob", "grep", "list", "skill"), "allow"))
     if profile == "member":
-        permission.update(edit="allow", bash={
-            "*": "deny",
-            "mas call *": "allow",
-            "uv run --no-project .handoff/handoff.py *": "allow",
-            "uv run --no-project .handoff\\handoff.py *": "allow",
-        })
+        permission.update(edit=opencode_edits(cwd or Path.cwd(), owned_paths),
+                          external_directory=opencode_external(owned_paths),
+                          bash={"*": "deny", "mas call *": "allow",
+                                **{command + " *": "allow" for command in handoff_commands(handoff_paths)}})
     config = dict(
         model=model, small_model=model, share="disabled", autoupdate=False,
         lsp=False, formatter=False, permission=permission,
