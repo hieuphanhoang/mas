@@ -1,0 +1,954 @@
+openapi: 3.1.0
+info:
+  title: MAS slice-1 API
+  version: 0.2.0
+  description: |
+    Contract 0.2.0, agreed in AGENT-004. One Windows PC, loopback
+    only, no login screen. GET /session bootstraps an HttpOnly SameSite=Strict
+    local session cookie and a CSRF token; mutations validate token and Host/Origin.
+    No wildcard CORS. Agent bearer credentials are local, scoped to a project,
+    agent and active run, supplied by the supervisor, never by this browser API.
+    Requests cannot set caller identity. Protected reads accept the browser
+    session; only explicitly listed operations also accept a scoped agent.
+
+    All mutating operations require Idempotency-Key. Scope keys by principal,
+    method and canonical path; retain receipts for 7 days. Same key/body returns
+    the original status/body without effects; different body returns 409.
+    Resolve an existing key before revision checks. In-flight duplicates return
+    409 operation_in_progress. Ambiguous side effects return 409 uncertain;
+    reconcile before retry, never launch/append twice. After key expiry a caller
+    must reconcile existing resources before submitting a new key.
+
+    ETags are strong quoted revision tokens. PUT requires If-Match; no wildcard.
+    Missing required header is 428, stale revision is 409 revision_conflict.
+    All errors use Error, including validation errors (not FastAPI's default).
+    Common statuses: 400 invalid cursor, 401 expired local/scoped credential,
+    403 forbidden/CSRF, 404 unknown resource, 409 conflict, 410 expired output,
+    413 too large, 422 schema/capability, 428 precondition required, 429 queue
+    limit, 503 unavailable dependency. No automatic model fallback.
+
+    event_cursor accompanies snapshots; it is a decimal string from the same
+    committed projection. File data is indexed with freshness, not claimed to
+    be an atomic view of an external filesystem. Cursor pagination is bounded
+    and stable for a traversal; invalid/expired cursors require a fresh list.
+    Config save and file apply are separate. Registration/config edits never
+    start agents. Dispatch requires current config to be applied and usable.
+servers:
+  - url: /api/v1
+security:
+  - LocalSession: []
+paths:
+  /session:
+    get:
+      operationId: getSession
+      security: []
+      summary: Bootstrap the local SPA session without a login screen
+      description: |
+        Sets mas_session if absent/expired and returns its CSRF token and expiry;
+        a valid cookie returns the same session/token without rotating other tabs.
+        No prior authentication or CSRF token required. This read/bootstrap is
+        exempt from Idempotency-Key; it does not change project state.
+        Validate loopback Host and, when present, Origin before issuing tokens.
+        Reject cross-site Fetch Metadata. Requests without Origin must be local
+        same-origin requests or local non-browser clients. Never allow wildcard
+        CORS or reflect arbitrary origins. Cookie is host-only, Path=/,
+        HttpOnly, SameSite=Strict (Secure when served over HTTPS).
+        Local backend setting dev_allowed_origins defaults to [] and accepts
+        only explicit loopback HTTP(S) origins, e.g. http://127.0.0.1:5173.
+        It extends the Origin allowlist for Vite's /api proxy, not Host trust,
+        bind address or remote access. The proxy must forward Set-Cookie and
+        rewrite upstream Host to the backend host; no cross-origin CORS needed.
+        Local processes under the same OS user are outside the hostile-origin
+        boundary. Never accept dev_allowed_origins from portable project JSON.
+      responses:
+        '200':
+          description: Local session available; token must not be cached or logged.
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+            Set-Cookie:
+              description: mas_session issued only when needed, with attributes above.
+              schema: {type: string}
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [csrf_token, expires_at]
+                properties:
+                  csrf_token: {type: string, minLength: 32, maxLength: 256}
+                  expires_at: {$ref: '#/components/schemas/Timestamp'}
+        default: {$ref: '#/components/responses/Error'}
+  /health:
+    get:
+      operationId: getHealth
+      security: []
+      summary: Local service health without sensitive project data
+      responses:
+        '200':
+          description: Service is responding; adapters may still be unavailable.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [status, api_version]
+                properties:
+                  status: {type: string, enum: [ok, degraded]}
+                  api_version: {const: 'v1'}
+        default: {$ref: '#/components/responses/Error'}
+  /capabilities:
+    get:
+      operationId: getCapabilities
+      summary: Installed adapter support and machine-wide limits
+      responses:
+        '200':
+          description: Includes unavailable/planned adapters with explicit reasons.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [adapters, permission_profiles, global_max_parallel, observed_at]
+                properties:
+                  adapters:
+                    type: array
+                    items: {$ref: '#/components/schemas/AdapterCapability'}
+                  permission_profiles:
+                    type: array
+                    items: {$ref: '#/components/schemas/PermissionProfile'}
+                    description: |
+                      Approved local profiles keyed by (harness, id), including
+                      id=default for each available harness. Planned/unavailable
+                      harnesses may have no profiles; the wizard must not invent
+                      one or treat an absent profile as launch authorization.
+                  global_max_parallel: {type: integer, minimum: 1, default: 2}
+                  observed_at: {$ref: '#/components/schemas/Timestamp'}
+        default: {$ref: '#/components/responses/Error'}
+  /projects:
+    get:
+      operationId: listProjects
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+      responses:
+        '200':
+          description: Registered project summaries.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor]
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/ProjectSummary'}}
+                  next_cursor: {$ref: '#/components/schemas/NullableCursor'}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      operationId: createProject
+      security: [{LocalSession: [], CsrfToken: []}]
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      description: |
+        Owner registers a new draft and supplies project.id. Existing canonical
+        root or ID conflicts. No project files are written until apply; runtime
+        registry stores the draft. No git init, installs, or process launch.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: 'project.schema.json'}
+      responses:
+        '201': {$ref: '#/components/responses/Project'}
+        default: {$ref: '#/components/responses/Error'}
+  /projects/{project_id}:
+    parameters: [{$ref: '#/components/parameters/ProjectId'}]
+    get:
+      operationId: getProject
+      responses:
+        '200': {$ref: '#/components/responses/Project'}
+        default: {$ref: '#/components/responses/Error'}
+    put:
+      operationId: updateProject
+      security: [{LocalSession: [], CsrfToken: []}]
+      parameters:
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+        - {$ref: '#/components/parameters/IfMatch'}
+      description: |
+        Owner replaces desired config, preserving project.id/root. Save a new
+        draft revision only; preview/apply writes project intent/generated files.
+        Unapplied changes block new dispatch. Current runs keep their launch
+        policy snapshot; reject ownership/policy removal affecting a live run
+        with 409 active_run_conflict. No roster changes through agent credentials.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: 'project.schema.json'}
+      responses:
+        '200': {$ref: '#/components/responses/Project'}
+        default: {$ref: '#/components/responses/Error'}
+  /projects/{project_id}/preview:
+    parameters: [{$ref: '#/components/parameters/ProjectId'}]
+    post:
+      operationId: previewProject
+      security: [{LocalSession: [], CsrfToken: []}]
+      parameters:
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+        - {$ref: '#/components/parameters/IfMatch'}
+      description: |
+        Read configured files and persist a preview receipt only. No project
+        writes or commands. Receipt binds desired revision and all observed
+        file hashes (including nonexistence), expires after 15 minutes. Paths
+        resolve only inside registered local folders. Large diffs fail visibly.
+        When Agent.prompt_file is omitted, preview proposes creation of
+        <cwd_folder>/.agents/mas/prompts/<agent_id>.md from the versioned preamble
+        plus the exact role text. Apply creates it only if absent. An existing
+        default prompt is preserved and preview reports unchanged plus a warning
+        if role/preamble differs; no silent overwrite. Explicit prompt_file must
+        already exist/read as text or preview reports conflict. Resolved prompt
+        must be readable by the agent and reserved against another generator.
+      responses:
+        '200':
+          description: Exact file effects, conflicts and coverage warnings.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Preview'}
+        default: {$ref: '#/components/responses/Error'}
+  /projects/{project_id}/apply:
+    parameters: [{$ref: '#/components/parameters/ProjectId'}]
+    post:
+      operationId: applyProject
+      security: [{LocalSession: [], CsrfToken: []}]
+      parameters:
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+        - {$ref: '#/components/parameters/IfMatch'}
+      description: |
+        Synchronously apply the named unexpired preview, rechecking revision and
+        every input hash. Conflict -> 409, no blind overwrite. Journal per-file
+        atomic changes/backups; a partial filesystem failure sets apply_failed
+        and blocks launches. A retry reconciles that journal. Does not start any
+        agent. Requires no active project run that could write affected files.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [preview_id]
+              properties:
+                preview_id: {$ref: '#/components/schemas/Id'}
+      responses:
+        '200': {$ref: '#/components/responses/Project'}
+        default: {$ref: '#/components/responses/Error'}
+  /projects/{project_id}/agents:
+    parameters: [{$ref: '#/components/parameters/ProjectId'}]
+    get:
+      operationId: listAgents
+      security: [{LocalSession: []}, {AgentBearer: []}]
+      description: Agent credentials see only their registered project.
+      responses:
+        '200':
+          description: All configured agents, bounded by the project's 256-agent schema limit.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, event_cursor]
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/AgentView'}}
+                  event_cursor: {$ref: '#/components/schemas/EventCursor'}
+        default: {$ref: '#/components/responses/Error'}
+  /projects/{project_id}/agents/{agent_id}/call:
+    parameters:
+      - {$ref: '#/components/parameters/ProjectId'}
+      - {$ref: '#/components/parameters/AgentId'}
+    post:
+      operationId: callAgent
+      security: [{LocalSession: [], CsrfToken: []}, {AgentBearer: []}]
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      description: |
+        Thread-first delivery. Caller derived from credential. Enforce invocation,
+        call edge, log membership, target and chain limits at acceptance and dispatch.
+        Member target requires thread_ref; helper target requires brief and a
+        member sponsor. Qualified thread/brief must resolve in this project.
+        Agent bearer derives parent/correlation/depth from its active run.
+        Busy queues FIFO; unknown liveness holds dispatch. Manual/relay target
+        becomes awaiting_manual and never spawns. Planned adapter returns 422.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CallRequest'}
+      responses:
+        '202': {$ref: '#/components/responses/Delivery'}
+        default: {$ref: '#/components/responses/Error'}
+  /projects/{project_id}/agents/{agent_id}/message:
+    parameters:
+      - {$ref: '#/components/parameters/ProjectId'}
+      - {$ref: '#/components/parameters/AgentId'}
+    post:
+      operationId: messageAgent
+      security: [{LocalSession: [], CsrfToken: []}]
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      description: |
+        Owner text is preserved exactly. For a member, append to the supplied
+        AGENT thread or create an Owner-origin AGENT request in log_id before
+        enqueueing. log_id is mandatory without thread_ref; target must be a
+        member of that log. Use the dedicated reply endpoint for ASK answers.
+        Delivery.thread_ref returns the selected/created thread. The UI retains
+        it and supplies it on follow-ups: a supplied thread_ref appends to that
+        same conversation and never creates another thread for each message.
+        Journal append + sync + enqueue; partial/ambiguous writes block retry
+        until reconciled. No typing into a running terminal. Helper messaging
+        uses call with a bounded brief instead (422 for this route).
+        All call, message and explicit wake deliveries have service-assigned
+        purpose=task; requests cannot set purpose.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/MessageRequest'}
+      responses:
+        '202': {$ref: '#/components/responses/Delivery'}
+        default: {$ref: '#/components/responses/Error'}
+  /projects/{project_id}/agents/{agent_id}/wake:
+    parameters:
+      - {$ref: '#/components/parameters/ProjectId'}
+      - {$ref: '#/components/parameters/AgentId'}
+    post:
+      operationId: wakeAgent
+      security: [{LocalSession: [], CsrfToken: []}]
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      description: |
+        Queue a bounded reorientation listing waiting qualified threads. No new
+        task invented. Empty inbox -> 409 no_pending_work. Paused queue -> 409
+        queue_paused; wake never implicitly resumes it. Member targets only.
+      responses:
+        '202': {$ref: '#/components/responses/Delivery'}
+        default: {$ref: '#/components/responses/Error'}
+  /projects/{project_id}/agents/{agent_id}/stop:
+    parameters:
+      - {$ref: '#/components/parameters/ProjectId'}
+      - {$ref: '#/components/parameters/AgentId'}
+    post:
+      operationId: stopAgent
+      security: [{LocalSession: [], CsrfToken: []}]
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      description: |
+        Persist queue_paused=true and cancellation intent for the active managed
+        run before returning. 200 acknowledges that state, not process exit.
+        State stays stopping until observed exit; unknown/external runs report
+        unknown with a reason and are not killed by name/PID guess. Never erase
+        session history. Queued work remains pending.
+      responses:
+        '200': {$ref: '#/components/responses/AgentControl'}
+        default: {$ref: '#/components/responses/Error'}
+  /projects/{project_id}/agents/{agent_id}/resume-queue:
+    parameters:
+      - {$ref: '#/components/parameters/ProjectId'}
+      - {$ref: '#/components/parameters/AgentId'}
+    post:
+      operationId: resumeAgentQueue
+      security: [{LocalSession: [], CsrfToken: []}]
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      description: Clear pause after validation; no duplicate active writer. Stopping/uncertain run -> 409.
+      responses:
+        '200': {$ref: '#/components/responses/AgentControl'}
+        default: {$ref: '#/components/responses/Error'}
+  /projects/{project_id}/calls:
+    parameters: [{$ref: '#/components/parameters/ProjectId'}]
+    get:
+      operationId: listCalls
+      security: [{LocalSession: []}, {AgentBearer: []}]
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+        - name: agent_id
+          in: query
+          schema: {$ref: '#/components/schemas/Id'}
+      description: Agent scope sees only calls it sent/received; newest created first, ID tie-break.
+      responses:
+        '200':
+          description: Durable delivery receipts, not provider transcripts.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor, event_cursor]
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/Delivery'}}
+                  next_cursor: {$ref: '#/components/schemas/NullableCursor'}
+                  event_cursor: {$ref: '#/components/schemas/EventCursor'}
+        default: {$ref: '#/components/responses/Error'}
+  /projects/{project_id}/calls/{call_id}:
+    parameters:
+      - {$ref: '#/components/parameters/ProjectId'}
+      - {$ref: '#/components/parameters/CallId'}
+    get:
+      operationId: getCall
+      security: [{LocalSession: []}, {AgentBearer: []}]
+      description: Agent scope can read its sent/received calls only.
+      responses:
+        '200': {$ref: '#/components/responses/Delivery'}
+        default: {$ref: '#/components/responses/Error'}
+  /projects/{project_id}/calls/{call_id}/cancel:
+    parameters:
+      - {$ref: '#/components/parameters/ProjectId'}
+      - {$ref: '#/components/parameters/CallId'}
+    post:
+      operationId: cancelCall
+      security: [{LocalSession: [], CsrfToken: []}]
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      description: |
+        Pending -> cancelled. Active -> persist cancellation request (reason
+        cancellation_requested) and stop that run; do not mark cancelled until
+        observed. Terminal calls return unchanged. uncertain -> 409. Other
+        queued deliveries may proceed; stopAgent pauses the entire queue.
+      responses:
+        '200': {$ref: '#/components/responses/Delivery'}
+        default: {$ref: '#/components/responses/Error'}
+  /projects/{project_id}/logs:
+    parameters: [{$ref: '#/components/parameters/ProjectId'}]
+    get:
+      operationId: listLogs
+      security: [{LocalSession: []}, {AgentBearer: []}]
+      description: Agent scope returns only logs of which it is a member.
+      responses:
+        '200':
+          description: Configured logs with indexed freshness, including unavailable logs.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, event_cursor]
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/LogView'}}
+                  event_cursor: {$ref: '#/components/schemas/EventCursor'}
+        default: {$ref: '#/components/responses/Error'}
+  /projects/{project_id}/logs/{log_id}/index:
+    parameters:
+      - {$ref: '#/components/parameters/ProjectId'}
+      - {$ref: '#/components/parameters/LogId'}
+    get:
+      operationId: getLogIndex
+      security: [{LocalSession: []}, {AgentBearer: []}]
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+        - name: section
+          in: query
+          schema: {type: string, enum: [awaiting_owner, open, history, all], default: open}
+      description: |
+        Parsed index section, page ordered as the file (newest first). Member
+        scope required for agent reads. Unavailable without cached data -> 503;
+        stale cached data remains visible with freshness. No implicit sync/write.
+      responses:
+        '200':
+          description: Index revision plus bounded rows for the requested section.
+          headers:
+            ETag: {$ref: '#/components/headers/ETag'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/LogIndex'}
+        default: {$ref: '#/components/responses/Error'}
+  /projects/{project_id}/logs/{log_id}/threads/{thread_id}:
+    parameters:
+      - {$ref: '#/components/parameters/ProjectId'}
+      - {$ref: '#/components/parameters/LogId'}
+      - {$ref: '#/components/parameters/ThreadId'}
+    get:
+      operationId: getThread
+      security: [{LocalSession: []}, {AgentBearer: []}]
+      description: Member scope for agent reads. Render markdown as untrusted content; disable raw HTML.
+      responses:
+        '200':
+          description: Original markdown and parsed metadata; parse errors remain visible.
+          headers:
+            ETag: {$ref: '#/components/headers/ETag'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ThreadDocument'}
+        default: {$ref: '#/components/responses/Error'}
+  /projects/{project_id}/logs/{log_id}/threads/{thread_id}/reply:
+    parameters:
+      - {$ref: '#/components/parameters/ProjectId'}
+      - {$ref: '#/components/parameters/LogId'}
+      - {$ref: '#/components/parameters/ThreadId'}
+    post:
+      operationId: replyAsOwner
+      security: [{LocalSession: [], CsrfToken: []}]
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      description: |
+        Force frm=Owner, clock stamp and status=answered through handoff.py.
+        Live ASK threads only; never auto-close. Compare expected_revision before
+        append; detected conflict -> 409. Preserve body verbatim. Journal append,
+        sync and optional wake so retry cannot duplicate a known committed answer.
+        Direct external CLI writers are a known race; no multi-writer guarantee.
+        Invalid/unauthorized wake target rejects before append. Wake of a paused
+        agent remains queued; unavailable planned adapter rejects before append.
+        A later enqueue failure leaves reply committed and reports wake_state=failed,
+        allowing explicit wake; do not resubmit the answer under a fresh key.
+        Optional wake creates purpose=notification, bound to the ASK actually
+        answered, even when no other work is pending. It does not require a new
+        comment in that ASK. Successful process completion means only that the
+        notification turn finished, not that the answer was acted upon. Paused
+        queues retain the notification without resuming. Manual targets remain
+        awaiting_manual; process failure, cancellation and uncertainty retain
+        their actual outcomes. Only this route creates notification deliveries.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ReplyRequest'}
+      responses:
+        '201':
+          description: Durable Owner comment; optional wake is independently reported.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ReplyReceipt'}
+        default: {$ref: '#/components/responses/Error'}
+  /inbox:
+    get:
+      operationId: getInbox
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+      description: |
+        Live ASK threads awaiting Owner across registered projects, oldest first,
+        qualified reference tie-break. Answered-by-Owner items leave this inbox
+        but remain in log history. Unavailable logs are listed as sources so an
+        empty items array cannot imply nothing is waiting everywhere.
+      responses:
+        '200':
+          description: Pending questions and source freshness.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor, sources]
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/ThreadSummary'}}
+                  next_cursor: {$ref: '#/components/schemas/NullableCursor'}
+                  sources: {type: array, items: {$ref: '#/components/schemas/LogView'}}
+        default: {$ref: '#/components/responses/Error'}
+  /projects/{project_id}/events:
+    parameters: [{$ref: '#/components/parameters/ProjectId'}]
+    get:
+      operationId: streamProjectEvents
+      parameters:
+        - name: Last-Event-ID
+          in: header
+          schema: {$ref: '#/components/schemas/EventCursor'}
+        - name: after
+          in: query
+          schema: {$ref: '#/components/schemas/EventCursor'}
+      description: |
+        text/event-stream; each data is ProjectEvent, id is event_id, event is
+        type. after bootstraps native EventSource; on reconnect Last-Event-ID
+        takes precedence. Omitted cursor starts with future events, not history.
+        Replay strictly after cursor, then live; clients dedupe IDs. Send comment
+        heartbeat at most 15 seconds apart. Retention gap/ahead/rebuilt store ->
+        stream.reset_required then close. Client closes, refetches project and
+        visible resources, opens from project.event_cursor. Slow clients are
+        disconnected and replay. No run output chunks in this durable stream.
+        A session expiry closes the stream; rebootstrap from the local UI.
+      responses:
+        '200':
+          description: SSE framing around JSON event envelopes, not a JSON response body.
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-cache}
+          content:
+            text/event-stream:
+              schema: {type: string}
+              x-event-schema: {$ref: 'events.schema.json'}
+        default: {$ref: '#/components/responses/Error'}
+  /projects/{project_id}/runs/{run_id}/output:
+    parameters:
+      - {$ref: '#/components/parameters/ProjectId'}
+      - name: run_id
+        in: path
+        required: true
+        schema: {$ref: '#/components/schemas/Id'}
+    get:
+      operationId: getRunOutput
+      parameters:
+        - name: offset
+          in: query
+          schema: {type: string, pattern: '^(0|[1-9][0-9]*)$', default: '0'}
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+      description: |
+        Read-only pollable captured stdout/stderr chunks. offset is the next
+        chunk sequence, not a byte offset. Chunks are at most 4096 characters;
+        next_offset resumes without splitting UTF-8. eof only after run exit and
+        buffers drained. Retained-output gap -> 410 output_expired, disabled
+        capture -> 409 output_disabled; offsets ahead -> 400. No provider
+        transcript lookup or arbitrary path download. Output is untrusted text.
+      responses:
+        '200':
+          description: Bounded captured chunks; poll while eof=false.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RunOutput'}
+        default: {$ref: '#/components/responses/Error'}
+components:
+  securitySchemes:
+    LocalSession:
+      type: apiKey
+      in: cookie
+      name: mas_session
+      description: Bootstrapped by GET /session; no login/account service.
+    CsrfToken:
+      type: apiKey
+      in: header
+      name: X-MAS-CSRF
+      description: Bound to local session; delivered by GET /session, never URL query.
+    AgentBearer:
+      type: http
+      scheme: bearer
+      description: Scoped supervisor-issued credential; never authorizes Owner routes.
+  parameters:
+    ProjectId:
+      name: project_id
+      in: path
+      required: true
+      schema: {$ref: '#/components/schemas/Id'}
+    AgentId:
+      name: agent_id
+      in: path
+      required: true
+      schema: {$ref: '#/components/schemas/Id'}
+    CallId:
+      name: call_id
+      in: path
+      required: true
+      schema: {$ref: '#/components/schemas/Id'}
+    LogId:
+      name: log_id
+      in: path
+      required: true
+      schema: {$ref: '#/components/schemas/Id'}
+    ThreadId:
+      name: thread_id
+      in: path
+      required: true
+      schema: {type: string, pattern: '^(AGENT|ASK)-[0-9]{3,}$'}
+    Limit:
+      name: limit
+      in: query
+      schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+    Cursor:
+      name: cursor
+      in: query
+      schema: {type: string, minLength: 1, maxLength: 2048}
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: {type: string, minLength: 8, maxLength: 128, pattern: '^[A-Za-z0-9_-]+$'}
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      schema: {type: string, pattern: '^"[A-Za-z0-9_-]{1,128}"$'}
+  headers:
+    ETag:
+      description: Strong quoted revision; matches the resource revision in the body.
+      schema: {type: string, pattern: '^"[A-Za-z0-9_-]{1,128}"$'}
+  responses:
+    Error:
+      description: Structured error; status/code meanings in the API description.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    Project:
+      description: Desired configuration, apply state and event cursor; create also sets Location.
+      headers:
+        ETag: {$ref: '#/components/headers/ETag'}
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ProjectRecord'}
+    Delivery:
+      description: Durable receipt. call_id route parameter equals delivery_id; status_url polls it.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Delivery'}
+    AgentControl:
+      description: Persisted control intent and observed state; not a promise of process termination.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/AgentStatus'}
+  schemas:
+    Id: {$ref: 'project.schema.json#/$defs/Id'}
+    ProjectConfig: {$ref: 'project.schema.json'}
+    ProjectEvent: {$ref: 'events.schema.json'}
+    Timestamp: {$ref: 'events.schema.json#/$defs/Timestamp'}
+    Revision: {$ref: 'events.schema.json#/$defs/Revision'}
+    EventCursor: {$ref: 'events.schema.json#/$defs/Cursor'}
+    ThreadRef: {$ref: 'events.schema.json#/$defs/ThreadRef'}
+    AgentStatus: {$ref: 'events.schema.json#/$defs/AgentStatus'}
+    Delivery: {$ref: 'events.schema.json#/$defs/Delivery'}
+    NullableCursor: {type: [string, 'null'], maxLength: 2048}
+    Error:
+      type: object
+      additionalProperties: false
+      required: [code, message, details, request_id, retryable]
+      properties:
+        code: {type: string, pattern: '^[a-z][a-z0-9_]+$'}
+        message: {type: string, maxLength: 2000}
+        details:
+          type: array
+          maxItems: 100
+          items:
+            type: object
+            additionalProperties: false
+            required: [location, code, message]
+            properties:
+              location: {type: string, maxLength: 500}
+              code: {type: string, maxLength: 100}
+              message: {type: string, maxLength: 2000}
+        request_id: {$ref: '#/components/schemas/Id'}
+        retryable: {type: boolean, description: 'True only when retry is safe with the same idempotency key. uncertain is false.'}
+    PermissionProfile:
+      type: object
+      additionalProperties: false
+      required: [id, harness, label, description]
+      properties:
+        id: {$ref: '#/components/schemas/Id'}
+        harness: {type: string, enum: [claude, codex, opencode, gemini, relay]}
+        label: {type: string, minLength: 1, maxLength: 120}
+        description: {type: string, minLength: 1, maxLength: 2000}
+      description: |
+        Select using (harness, id). default is required for available harnesses;
+        its description explains actual sandbox/approval behavior. Labels never
+        imply permission bypass or a portable security guarantee.
+    AdapterCapability:
+      type: object
+      additionalProperties: false
+      required: [harness, availability, version, reason, modes, resume, live_delivery, attach, stop, guard_coverage]
+      properties:
+        harness: {type: string, enum: [claude, codex, opencode, gemini, relay]}
+        availability: {type: string, enum: [available, unavailable, planned, manual]}
+        version: {type: [string, 'null'], maxLength: 100}
+        reason: {type: [string, 'null'], maxLength: 2000}
+        modes: {type: array, uniqueItems: true, items: {type: string, enum: [managed, manual]}}
+        resume: {type: boolean}
+        live_delivery: {type: boolean}
+        attach: {type: boolean, description: 'Informational only; resume-window endpoint is later.'}
+        stop: {type: boolean}
+        guard_coverage:
+          type: object
+          additionalProperties: false
+          required: [tool_paths, shell_commands, sandbox, limitations]
+          properties:
+            tool_paths: {type: string, enum: [verified, partial, unsupported, unknown]}
+            shell_commands: {type: string, enum: [verified, partial, unsupported, unknown]}
+            sandbox: {type: string, enum: [verified, partial, unsupported, unknown]}
+            limitations: {type: array, items: {type: string, maxLength: 2000}}
+    ProjectSummary:
+      type: object
+      additionalProperties: false
+      required: [project_id, name, root, revision, scaffold_state, agent_count, active_run_count]
+      properties:
+        project_id: {$ref: '#/components/schemas/Id'}
+        name: {type: string}
+        root: {type: string}
+        revision: {$ref: '#/components/schemas/Revision'}
+        scaffold_state: {type: string, enum: [draft, applied, conflict, apply_failed]}
+        agent_count: {type: integer, minimum: 0}
+        active_run_count: {type: integer, minimum: 0}
+    ProjectRecord:
+      type: object
+      additionalProperties: false
+      required: [config, revision, applied_revision, scaffold_state, event_cursor]
+      properties:
+        config: {$ref: 'project.schema.json'}
+        revision: {$ref: '#/components/schemas/Revision'}
+        applied_revision: {anyOf: [{$ref: '#/components/schemas/Revision'}, {type: 'null'}]}
+        scaffold_state: {type: string, enum: [draft, applied, conflict, apply_failed]}
+        event_cursor: {$ref: '#/components/schemas/EventCursor'}
+    Preview:
+      type: object
+      additionalProperties: false
+      required: [preview_id, project_id, revision, expires_at, can_apply, changes, warnings]
+      properties:
+        preview_id: {$ref: '#/components/schemas/Id'}
+        project_id: {$ref: '#/components/schemas/Id'}
+        revision: {$ref: '#/components/schemas/Revision'}
+        expires_at: {$ref: '#/components/schemas/Timestamp'}
+        can_apply: {type: boolean}
+        warnings: {type: array, items: {type: string, maxLength: 2000}}
+        changes:
+          type: array
+          maxItems: 2048
+          items:
+            type: object
+            additionalProperties: false
+            required: [path, action, before_sha256, after_sha256, diff, conflict_reason]
+            properties:
+              path: {$ref: 'project.schema.json#/$defs/PathRef'}
+              action: {type: string, enum: [create, update, unchanged, conflict]}
+              before_sha256: {type: [string, 'null'], pattern: '^[a-f0-9]{64}$'}
+              after_sha256: {type: [string, 'null'], pattern: '^[a-f0-9]{64}$'}
+              diff: {type: string, maxLength: 262144, description: 'Exact UTF-8 text diff; never silently truncated. No deletes in slice 1.'}
+              conflict_reason: {type: [string, 'null'], maxLength: 2000}
+    AgentView:
+      type: object
+      additionalProperties: false
+      required: [config, status, capabilities]
+      properties:
+        config: {$ref: 'project.schema.json#/$defs/Agent'}
+        status: {$ref: '#/components/schemas/AgentStatus'}
+        capabilities: {$ref: '#/components/schemas/AdapterCapability'}
+    CallRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        thread_ref: {$ref: '#/components/schemas/ThreadRef'}
+        brief: {$ref: 'project.schema.json#/$defs/PathRef'}
+        note: {type: string, maxLength: 4000, default: ''}
+        mode: {type: string, enum: [managed, manual], description: 'Optional; must match target configuration/capability.'}
+      oneOf:
+        - required: [thread_ref]
+          not: {required: [brief]}
+        - required: [brief]
+          not: {required: [thread_ref]}
+    MessageRequest:
+      type: object
+      additionalProperties: false
+      required: [text]
+      properties:
+        text: {type: string, minLength: 1, maxLength: 65536}
+        thread_ref: {$ref: '#/components/schemas/ThreadRef'}
+        log_id: {$ref: '#/components/schemas/Id'}
+      oneOf:
+        - required: [thread_ref]
+          not: {required: [log_id]}
+        - required: [log_id]
+          not: {required: [thread_ref]}
+    Freshness:
+      type: object
+      additionalProperties: false
+      required: [state, observed_at, reason]
+      properties:
+        state: {type: string, enum: [current, stale, unavailable, parse_error]}
+        observed_at: {anyOf: [{$ref: '#/components/schemas/Timestamp'}, {type: 'null'}]}
+        reason: {type: [string, 'null'], maxLength: 2000}
+    LogView:
+      type: object
+      additionalProperties: false
+      required: [project_id, log_id, folder_id, members, freshness]
+      properties:
+        project_id: {$ref: '#/components/schemas/Id'}
+        log_id: {$ref: '#/components/schemas/Id'}
+        folder_id: {$ref: '#/components/schemas/Id'}
+        members: {type: array, items: {$ref: '#/components/schemas/Id'}}
+        freshness: {$ref: '#/components/schemas/Freshness'}
+    ThreadSummary:
+      type: object
+      additionalProperties: false
+      required: [thread_ref, title, type, status, from_name, to_name, owes_reply, updated_at, revision, parse_errors]
+      properties:
+        thread_ref: {$ref: '#/components/schemas/ThreadRef'}
+        title: {type: [string, 'null']}
+        type: {enum: [STATUS, QUESTION, REQUEST, ANSWER, DECISION, BLOCKER, ACK, null]}
+        status: {anyOf: [{$ref: 'events.schema.json#/$defs/ThreadStatus'}, {type: 'null'}]}
+        from_name: {type: [string, 'null'], description: 'Original log author label, never rewritten as an agent ID.'}
+        to_name: {type: [string, 'null']}
+        owes_reply: {type: [string, 'null']}
+        updated_at: {anyOf: [{$ref: '#/components/schemas/Timestamp'}, {type: 'null'}], description: 'Normalize log-local stamps with project timezone; ambiguity produces null and parse_errors.'}
+        revision: {$ref: '#/components/schemas/Revision'}
+        parse_errors: {type: array, items: {type: string}}
+    HistoryRow:
+      type: object
+      additionalProperties: false
+      required: [time_text, speaker, threads, summary]
+      properties:
+        time_text: {type: string}
+        speaker: {type: string}
+        threads: {type: array, items: {type: string}}
+        summary: {type: string}
+    LogIndex:
+      type: object
+      additionalProperties: false
+      required: [log, revision, section, items, next_cursor, event_cursor]
+      properties:
+        log: {$ref: '#/components/schemas/LogView'}
+        revision: {$ref: '#/components/schemas/Revision'}
+        section: {enum: [awaiting_owner, open, history, all]}
+        items: {type: array}
+        next_cursor: {$ref: '#/components/schemas/NullableCursor'}
+        event_cursor: {$ref: '#/components/schemas/EventCursor'}
+      oneOf:
+        - properties:
+            section: {const: history}
+            items: {items: {$ref: '#/components/schemas/HistoryRow'}}
+        - properties:
+            section: {enum: [awaiting_owner, open, all]}
+            items: {items: {$ref: '#/components/schemas/ThreadSummary'}}
+    ThreadDocument:
+      type: object
+      additionalProperties: false
+      required: [metadata, markdown, freshness, event_cursor]
+      properties:
+        metadata: {$ref: '#/components/schemas/ThreadSummary'}
+        markdown: {type: string, maxLength: 2097152, description: 'Oversized thread -> explicit 413, never silently truncate the record.'}
+        freshness: {$ref: '#/components/schemas/Freshness'}
+        event_cursor: {$ref: '#/components/schemas/EventCursor'}
+    ReplyRequest:
+      type: object
+      additionalProperties: false
+      required: [body, expected_revision]
+      properties:
+        body: {type: string, minLength: 1, maxLength: 65536}
+        expected_revision: {$ref: '#/components/schemas/Revision'}
+        wake_agent_id: {$ref: '#/components/schemas/Id'}
+    ReplyReceipt:
+      type: object
+      additionalProperties: false
+      required: [reply_id, thread_ref, revision, stamped_at, sync_state, wake_state, wake_delivery, reason]
+      properties:
+        reply_id: {$ref: '#/components/schemas/Id', description: 'Service receipt ID, not a rewritten markdown comment identifier.'}
+        thread_ref: {$ref: '#/components/schemas/ThreadRef'}
+        revision: {$ref: '#/components/schemas/Revision'}
+        stamped_at: {$ref: '#/components/schemas/Timestamp'}
+        sync_state: {type: string, enum: [synced, pending, failed]}
+        wake_state: {type: string, enum: [not_requested, queued, failed]}
+        wake_delivery: {anyOf: [{$ref: '#/components/schemas/Delivery'}, {type: 'null'}]}
+        reason: {type: [string, 'null'], maxLength: 2000}
+    RunOutput:
+      type: object
+      additionalProperties: false
+      required: [run_id, chunks, next_offset, eof, expires_at]
+      properties:
+        run_id: {$ref: '#/components/schemas/Id'}
+        chunks:
+          type: array
+          maxItems: 100
+          items:
+            type: object
+            additionalProperties: false
+            required: [offset, stream, text]
+            properties:
+              offset: {$ref: '#/components/schemas/EventCursor'}
+              stream: {type: string, enum: [stdout, stderr, system]}
+              text: {type: string, maxLength: 4096}
+        next_offset: {$ref: '#/components/schemas/EventCursor'}
+        eof: {type: boolean}
+        expires_at: {$ref: '#/components/schemas/Timestamp'}
+
+# Later, deliberately NOT paths in slice 1:
+# - archive/delete and import preview/export; session replacement/start --fresh
+# - resume-window/interactive attach and live mid-turn messaging
+# - doctor/doctor-runs, commits, leases/grant/revoke, rituals/manual/scheduled runs
+# - streamed output follow (slice 1 polls bounded JSON chunks)
+# - opencode execution next; Gemini CLI after v1; remote execution excluded
+# Later events: session.replaced, commit.recorded, lease.changed,
+# ritual.state_changed, doctor.completed. Do not emit them under this schema.

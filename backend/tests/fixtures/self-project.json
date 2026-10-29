@@ -1,0 +1,157 @@
+{
+  "schema_version": 1,
+  "project": {
+    "id": "mas-self",
+    "name": "Multi-agents system",
+    "root": "D:/AIStudio/mas",
+    "timezone": "Asia/Bangkok",
+    "archived": false
+  },
+  "folders": [
+    {
+      "id": "root",
+      "path": "D:/AIStudio/mas"
+    }
+  ],
+  "logs": [
+    {
+      "id": "main",
+      "folder_id": "root",
+      "relative_path": ".handoff",
+      "members": [
+        "fable",
+        "codex"
+      ]
+    }
+  ],
+  "levels": [
+    {
+      "id": "members",
+      "label": "Members",
+      "order": 0
+    },
+    {
+      "id": "owner",
+      "label": "Owner",
+      "order": 1
+    }
+  ],
+  "agents": [
+    {
+      "id": "fable",
+      "name": "Fable",
+      "level_id": "members",
+      "role": "Own frontend, docs/plan/frontend-plan.md. Coordinate contract changes and handoffs with the other member through .handoff.",
+      "harness": "claude",
+      "model": "claude-fable-5-1",
+      "cwd_folder_id": "root",
+      "owns": [
+        {
+          "folder_id": "root",
+          "path": "frontend"
+        },
+        {
+          "folder_id": "root",
+          "path": "docs/plan/frontend-plan.md"
+        }
+      ],
+      "reads": [
+        {
+          "folder_id": "root",
+          "path": "."
+        }
+      ],
+      "log_ids": [
+        "main"
+      ],
+      "skills": [
+        "agents-collaboration-protocol"
+      ],
+      "log_duty": "member",
+      "invocation": "callable",
+      "launch_mode": "managed",
+      "permission_profile": "default"
+    },
+    {
+      "id": "codex",
+      "name": "Codex",
+      "level_id": "members",
+      "role": "Own backend, docs/plan/backend-plan.md. Coordinate contract changes and handoffs with the other member through .handoff.",
+      "harness": "codex",
+      "model": "gpt-6-astra",
+      "cwd_folder_id": "root",
+      "owns": [
+        {
+          "folder_id": "root",
+          "path": "backend"
+        },
+        {
+          "folder_id": "root",
+          "path": "docs/plan/backend-plan.md"
+        }
+      ],
+      "reads": [
+        {
+          "folder_id": "root",
+          "path": "."
+        }
+      ],
+      "log_ids": [
+        "main"
+      ],
+      "skills": [
+        "agents-collaboration-protocol"
+      ],
+      "log_duty": "member",
+      "invocation": "callable",
+      "launch_mode": "managed",
+      "permission_profile": "default",
+      "effort": "high"
+    }
+  ],
+  "call_policy": {
+    "mode": "orchestrated",
+    "allowed_edges": [
+      {
+        "from_agent_id": "fable",
+        "to_agent_id": "codex"
+      },
+      {
+        "from_agent_id": "codex",
+        "to_agent_id": "fable"
+      }
+    ],
+    "subagents": "disabled",
+    "max_parallel": 2,
+    "max_chain_depth": 8,
+    "max_calls_per_chain": 32,
+    "run_timeout_seconds": 3600,
+    "paid_model_fallback": false
+  },
+  "guard_policy": {
+    "mode": "guarded",
+    "protected_paths": [
+      {
+        "folder_id": "root",
+        "path": ".git"
+      }
+    ],
+    "merge_by": "owner",
+    "pushes": "owner",
+    "review_before_merge": true,
+    "leases_enabled": false
+  },
+  "rituals": [],
+  "retention": {
+    "output_days": 7,
+    "event_days": 7,
+    "capture_output": true,
+    "copy_provider_transcripts": false
+  },
+  "adapter_options": {
+    "claude": {},
+    "codex": {},
+    "opencode": {},
+    "gemini": {}
+  }
+}

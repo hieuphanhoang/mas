@@ -1,0 +1,44 @@
+/* Design tokens. Light by default; dark follows the OS unless data-theme forces one. */
+:root {
+  --bg: #f6f5f1;
+  --surface: #ffffff;
+  --surface-2: #eeece6;
+  --ink: #1d1c1a;
+  --ink-2: #5a5853;
+  --line: #d9d6cd;
+  --accent: #1f5f8b;
+  --accent-ink: #ffffff;
+  --busy: #c9821c;
+  --idle: #4f8a4b;
+  --needs-input: #b23a3a;
+  --offline: #9a978f;
+  --radius: 6px;
+  --font: ui-sans-serif, "Segoe UI", system-ui, sans-serif;
+  --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #15171a;
+    --surface: #1d2024;
+    --surface-2: #262a2f;
+    --ink: #e8e6e1;
+    --ink-2: #a39f97;
+    --line: #353a40;
+    --accent: #6fb1e0;
+    --accent-ink: #0d1115;
+    --offline: #6b6f75;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #15171a;
+  --surface: #1d2024;
+  --surface-2: #262a2f;
+  --ink: #e8e6e1;
+  --ink-2: #a39f97;
+  --line: #353a40;
+  --accent: #6fb1e0;
+  --accent-ink: #0d1115;
+  --offline: #6b6f75;
+}

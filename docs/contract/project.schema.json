@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ProjectConfig",
+  "description": "MAS slice-1 portable project intent. A valid config is not authorization to launch a planned adapter. See x-semantic-validation. Defaults are UI suggestions, not implicit validator mutations.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "project", "folders", "logs", "levels", "agents", "call_policy", "guard_policy", "rituals", "retention", "adapter_options"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "project": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "name", "root", "timezone", "archived"],
+      "properties": {
+        "id": {"$ref": "#/$defs/Id"},
+        "name": {"type": "string", "minLength": 1, "maxLength": 120},
+        "root": {"$ref": "#/$defs/LocalRoot"},
+        "timezone": {"type": "string", "minLength": 1, "maxLength": 100, "examples": ["Asia/Bangkok"]},
+        "archived": {"const": false, "description": "Archive is a later endpoint; cannot be changed with PUT."}
+      }
+    },
+    "folders": {"type": "array", "maxItems": 128, "items": {"$ref": "#/$defs/Folder"}},
+    "logs": {"type": "array", "maxItems": 128, "items": {"$ref": "#/$defs/Log"}},
+    "levels": {"type": "array", "maxItems": 32, "items": {"$ref": "#/$defs/Level"}},
+    "agents": {"type": "array", "maxItems": 256, "items": {"$ref": "#/$defs/Agent"}},
+    "call_policy": {
+      "type": "object", "additionalProperties": false,
+      "required": ["mode", "allowed_edges", "subagents", "max_parallel", "max_chain_depth", "max_calls_per_chain", "run_timeout_seconds", "paid_model_fallback"],
+      "properties": {
+        "mode": {"enum": ["independent", "orchestrated", "mixed"], "default": "independent"},
+        "allowed_edges": {"type": "array", "maxItems": 4096, "uniqueItems": true, "items": {"$ref": "#/$defs/CallEdge"}},
+        "subagents": {"const": "disabled", "description": "A per-project opt-in is reserved for a later slice."},
+        "max_parallel": {"type": "integer", "minimum": 1, "maximum": 64, "default": 2, "description": "Project cap, also bounded by machine-wide cap (initial default 2)."},
+        "max_chain_depth": {"type": "integer", "minimum": 1, "maximum": 32, "default": 8},
+        "max_calls_per_chain": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 32},
+        "run_timeout_seconds": {"type": "integer", "minimum": 30, "maximum": 86400, "default": 3600},
+        "paid_model_fallback": {"const": false}
+      }
+    },
+    "guard_policy": {
+      "type": "object", "additionalProperties": false,
+      "required": ["mode", "protected_paths", "merge_by", "pushes", "review_before_merge", "leases_enabled"],
+      "properties": {
+        "mode": {"enum": ["advisory", "guarded"], "default": "guarded", "description": "Workflow coverage, not hostile-process isolation. Expose unsupported checks."},
+        "protected_paths": {"type": "array", "maxItems": 256, "uniqueItems": true, "items": {"$ref": "#/$defs/PathRef"}},
+        "merge_by": {"const": "owner"},
+        "pushes": {"const": "owner"},
+        "review_before_merge": {"const": true},
+        "leases_enabled": {"const": false, "description": "Leases are later; the field reserves intent."}
+      }
+    },
+    "rituals": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/Ritual"}},
+    "retention": {
+      "type": "object", "additionalProperties": false,
+      "required": ["output_days", "event_days", "capture_output", "copy_provider_transcripts"],
+      "properties": {
+        "output_days": {"type": "integer", "minimum": 1, "maximum": 365, "default": 7},
+        "event_days": {"type": "integer", "minimum": 1, "maximum": 365, "default": 7},
+        "capture_output": {"type": "boolean", "default": true},
+        "copy_provider_transcripts": {"const": false}
+      }
+    },
+    "adapter_options": {
+      "type": "object", "additionalProperties": false,
+      "required": ["claude", "codex", "opencode", "gemini"],
+      "properties": {
+        "claude": {"$ref": "#/$defs/ManagedAdapterOptions"},
+        "codex": {"$ref": "#/$defs/ManagedAdapterOptions"},
+        "opencode": {"type": "object", "additionalProperties": false, "description": "Reserved for the next adapter; no launch configuration in slice 1."},
+        "gemini": {"type": "object", "additionalProperties": false, "description": "Reserved fourth process adapter. Planned, not in v1; commands/hooks/ID format unverified."}
+      }
+    }
+  },
+  "$defs": {
+    "Id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"},
+    "LocalRoot": {"type": "string", "pattern": "^[A-Za-z]:/[^\\\\:\\u0000]*$", "maxLength": 1024, "description": "Absolute local Windows directory, forward slashes. Backend rejects UNC, network-mapped drives, remote/reparse escapes and noncanonical dot segments. No paths to executable commands."},
+    "RelativePath": {"type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^[^/\\\\:\\u0000][^\\\\:\\u0000]*$", "not": {"pattern": "(^|/)\\.\\.(/|$)"}, "description": "Folder-relative forward-slash path; '.' means the folder itself. No traversal or drive prefix. Canonical resolution is also mandatory."},
+    "PathRef": {
+      "type": "object", "additionalProperties": false, "required": ["folder_id", "path"],
+      "properties": {"folder_id": {"$ref": "#/$defs/Id"}, "path": {"$ref": "#/$defs/RelativePath"}}
+    },
+    "Folder": {
+      "type": "object", "additionalProperties": false, "required": ["id", "path"],
+      "properties": {"id": {"$ref": "#/$defs/Id"}, "path": {"$ref": "#/$defs/LocalRoot"}, "repository_id": {"$ref": "#/$defs/Id"}}
+    },
+    "Log": {
+      "type": "object", "additionalProperties": false, "required": ["id", "folder_id", "relative_path", "members"],
+      "properties": {
+        "id": {"$ref": "#/$defs/Id"}, "folder_id": {"$ref": "#/$defs/Id"},
+        "relative_path": {"const": ".handoff"},
+        "members": {"type": "array", "maxItems": 256, "uniqueItems": true, "items": {"$ref": "#/$defs/Id"}}
+      }
+    },
+    "Level": {
+      "type": "object", "additionalProperties": false, "required": ["id", "label", "order"],
+      "properties": {"id": {"$ref": "#/$defs/Id"}, "label": {"type": "string", "minLength": 1, "maxLength": 80}, "order": {"type": "integer", "minimum": 0, "maximum": 1000}}
+    },
+    "Agent": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "name", "level_id", "role", "harness", "model", "cwd_folder_id", "owns", "reads", "log_ids", "skills", "log_duty", "invocation", "launch_mode", "permission_profile"],
+      "properties": {
+        "id": {"$ref": "#/$defs/Id"}, "name": {"type": "string", "minLength": 1, "maxLength": 80},
+        "level_id": {"$ref": "#/$defs/Id"}, "role": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "harness": {"enum": ["claude", "codex", "opencode", "gemini", "relay"]},
+        "model": {"type": "string", "minLength": 1, "maxLength": 200},
+        "effort": {"type": "string", "minLength": 1, "maxLength": 40, "description": "Opaque harness value validated by the selected adapter; no automatic substitution."},
+        "cwd_folder_id": {"$ref": "#/$defs/Id"},
+        "owns": {"type": "array", "maxItems": 256, "uniqueItems": true, "items": {"$ref": "#/$defs/PathRef"}},
+        "reads": {"type": "array", "maxItems": 256, "uniqueItems": true, "items": {"$ref": "#/$defs/PathRef"}},
+        "log_ids": {"type": "array", "maxItems": 128, "uniqueItems": true, "items": {"$ref": "#/$defs/Id"}},
+        "skills": {"type": "array", "maxItems": 128, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 200}},
+        "prompt_file": {"$ref": "#/$defs/PathRef", "description": "Optional. If absent, resolve to {folder_id: cwd_folder_id, path: .agents/mas/prompts/<agent_id>.md}. Preview/apply generates it from the versioned preamble plus role only when absent; existing content is preserved. An explicit path must already exist. This computed default cannot be expressed as a literal JSON Schema default."},
+        "log_duty": {"enum": ["member", "helper"]},
+        "sponsor_agent_id": {"$ref": "#/$defs/Id"},
+        "invocation": {"enum": ["callable", "owner", "relay"]},
+        "launch_mode": {"enum": ["managed", "manual"]},
+        "permission_profile": {"$ref": "#/$defs/Id", "description": "Select (harness, id) from GET /capabilities.permission_profiles. Available harnesses expose default; never arbitrary CLI flags."}
+      },
+      "allOf": [
+        {"if": {"properties": {"log_duty": {"const": "helper"}}}, "then": {"required": ["sponsor_agent_id"]}, "else": {"not": {"required": ["sponsor_agent_id"]}}},
+        {"if": {"properties": {"harness": {"const": "relay"}}}, "then": {"properties": {"invocation": {"const": "relay"}, "launch_mode": {"const": "manual"}}}, "else": {"properties": {"invocation": {"enum": ["callable", "owner"]}}}}
+      ]
+    },
+    "CallEdge": {
+      "type": "object", "additionalProperties": false, "required": ["from_agent_id", "to_agent_id"],
+      "properties": {"from_agent_id": {"$ref": "#/$defs/Id"}, "to_agent_id": {"$ref": "#/$defs/Id"}}
+    },
+    "Ritual": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "kind", "target_agent_id", "prompt_file", "trigger", "timezone", "enabled", "missed_run_policy"],
+      "properties": {
+        "id": {"$ref": "#/$defs/Id"}, "kind": {"enum": ["kickoff", "review", "custom"]},
+        "target_agent_id": {"$ref": "#/$defs/Id"}, "prompt_file": {"$ref": "#/$defs/PathRef"},
+        "trigger": {"enum": ["manual", "weekly"], "default": "manual"},
+        "timezone": {"type": "string", "minLength": 1, "maxLength": 100},
+        "weekday": {"type": "integer", "minimum": 1, "maximum": 7, "description": "ISO weekday, Monday=1."},
+        "local_time": {"type": "string", "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$"},
+        "enabled": {"const": false, "description": "Ritual execution/scheduling is later. Saving a definition does not schedule it."},
+        "missed_run_policy": {"enum": ["skip", "offer_one"], "default": "skip"}
+      },
+      "allOf": [{"if": {"properties": {"trigger": {"const": "weekly"}}}, "then": {"required": ["weekday", "local_time"]}, "else": {"not": {"anyOf": [{"required": ["weekday"]}, {"required": ["local_time"]}]}}}]
+    },
+    "ManagedAdapterOptions": {
+      "type": "object", "additionalProperties": false,
+      "properties": {"permission_profile": {"$ref": "#/$defs/Id"}},
+      "description": "Local policy profile reference only. Executable paths, secrets, session IDs and command templates are not portable config. Agent profile overrides this default."
+    }
+  },
+  "x-semantic-validation": [
+    "Unique IDs in each collection and unique agent names per project; project.id and root are immutable after registration.",
+    "Resolve all folder, level, member, log, ritual, sponsor and call-edge references. Log membership and agent.log_ids must agree. Helpers have a distinct member sponsor and cannot be log members.",
+    "Validate IANA timezones, local directories and resolved path containment; reject network shares/mapped drives, traversal and reparse escapes. External local folders require explicit Owner registration.",
+    "Reject overlapping agent owns paths, protected-path writes and self-call edges. Shared handoff append rights come from log membership, not ownership of the whole .handoff directory.",
+    "independent mode disables agent-to-agent calls regardless of edges. mixed/orchestrated still respect per-agent invocation and allowed edges. Owner calls do not need an edge.",
+    "Only claude/codex managed execution is slice 1. opencode/gemini entries can be saved as planned; dispatch returns unsupported_capability. Relay/manual entries never launch processes.",
+    "Known unavailable optional adapters do not prevent saving a draft. Apply reports coverage; launch requires an applied current revision and a usable adapter/profile.",
+    "No config field authorizes new models, higher limits, policy changes, or file generation when supplied by an agent credential. The local Owner edits configuration."
+  ],
+  "examples": [{
+    "schema_version": 1,
+    "project": {"id": "demo", "name": "Demo", "root": "D:/Projects/demo", "timezone": "Asia/Bangkok", "archived": false},
+    "folders": [{"id": "root", "path": "D:/Projects/demo"}], "logs": [], "levels": [], "agents": [],
+    "call_policy": {"mode": "independent", "allowed_edges": [], "subagents": "disabled", "max_parallel": 2, "max_chain_depth": 8, "max_calls_per_chain": 32, "run_timeout_seconds": 3600, "paid_model_fallback": false},
+    "guard_policy": {"mode": "guarded", "protected_paths": [], "merge_by": "owner", "pushes": "owner", "review_before_merge": true, "leases_enabled": false},
+    "rituals": [], "retention": {"output_days": 7, "event_days": 7, "capture_output": true, "copy_provider_transcripts": false},
+    "adapter_options": {"claude": {}, "codex": {}, "opencode": {}, "gemini": {}}
+  }]
+}

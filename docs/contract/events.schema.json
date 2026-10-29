@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ProjectEvent",
+  "description": "One JSON data value in the project SSE stream. SSE id equals event_id and event equals type. Domain events are durable; reset is a stream-control frame. Heartbeats are SSE comments, not JSON events.",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "event_id", "project_id", "type", "occurred_at", "entity_id", "revision", "correlation_id", "payload"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "event_id": {"$ref": "#/$defs/Cursor"},
+    "project_id": {"$ref": "project.schema.json#/$defs/Id"},
+    "type": {"enum": ["project.changed", "agent.status_changed", "delivery.queued", "delivery.state_changed", "run.started", "run.finished", "thread.changed", "inbox.changed", "stream.reset_required"]},
+    "occurred_at": {"$ref": "#/$defs/Timestamp"},
+    "entity_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "revision": {"$ref": "#/$defs/Revision"},
+    "correlation_id": {"$ref": "project.schema.json#/$defs/Id"},
+    "payload": {"type": "object"}
+  },
+  "oneOf": [
+    {"properties": {"type": {"const": "project.changed"}, "payload": {"$ref": "#/$defs/ProjectChanged"}}},
+    {"properties": {"type": {"const": "agent.status_changed"}, "payload": {"$ref": "#/$defs/AgentStatus"}}},
+    {"properties": {"type": {"const": "delivery.queued"}, "payload": {"$ref": "#/$defs/QueuedDelivery"}}},
+    {"properties": {"type": {"const": "delivery.state_changed"}, "payload": {"$ref": "#/$defs/Delivery"}}},
+    {"properties": {"type": {"const": "run.started"}, "payload": {"$ref": "#/$defs/StartedRun"}}},
+    {"properties": {"type": {"const": "run.finished"}, "payload": {"$ref": "#/$defs/FinishedRun"}}},
+    {"properties": {"type": {"const": "thread.changed"}, "payload": {"$ref": "#/$defs/ThreadChanged"}}},
+    {"properties": {"type": {"const": "inbox.changed"}, "payload": {"$ref": "#/$defs/InboxChanged"}}},
+    {"properties": {"type": {"const": "stream.reset_required"}, "payload": {"$ref": "#/$defs/ResetRequired"}}}
+  ],
+  "$defs": {
+    "Cursor": {"type": "string", "pattern": "^(0|[1-9][0-9]*)$", "description": "Monotonic sequence encoded as decimal string to avoid JavaScript precision loss. Compare as BigInt, never lexically. 0 precedes first event."},
+    "Revision": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,128}$", "description": "Opaque version token; compare equality only. ETag quotes this value."},
+    "Timestamp": {"type": "string", "format": "date-time", "pattern": "Z$", "description": "RFC 3339 UTC; backend clock, never client-supplied attribution."},
+    "ThreadRef": {
+      "type": "object", "additionalProperties": false, "required": ["project_id", "log_id", "thread_id"],
+      "properties": {"project_id": {"$ref": "project.schema.json#/$defs/Id"}, "log_id": {"$ref": "project.schema.json#/$defs/Id"}, "thread_id": {"type": "string", "pattern": "^(AGENT|ASK)-[0-9]{3,}$"}}
+    },
+    "ThreadStatus": {"enum": ["open", "answered", "blocked", "closed", "withdrawn", "superseded"]},
+    "AgentStatus": {
+      "type": "object", "additionalProperties": false,
+      "required": ["agent_id", "revision", "state", "observed_at", "source", "reason", "queue_length", "queue_paused", "session_id", "session_generation", "active_run_id"],
+      "properties": {
+        "agent_id": {"$ref": "project.schema.json#/$defs/Id"}, "revision": {"$ref": "#/$defs/Revision"},
+        "state": {"enum": ["offline", "starting", "busy", "needs_input", "idle", "stopping", "error", "unknown"]},
+        "observed_at": {"$ref": "#/$defs/Timestamp"},
+        "source": {"enum": ["supervisor", "adapter", "manual", "unavailable"]},
+        "reason": {"type": ["string", "null"], "maxLength": 2000},
+        "queue_length": {"type": "integer", "minimum": 0}, "queue_paused": {"type": "boolean"},
+        "session_id": {"type": ["string", "null"], "maxLength": 200, "description": "Opaque harness ID; not a route or credential."},
+        "session_generation": {"type": ["integer", "null"], "minimum": 1},
+        "active_run_id": {"anyOf": [{"$ref": "project.schema.json#/$defs/Id"}, {"type": "null"}]}
+      }
+    },
+    "Delivery": {
+      "type": "object", "additionalProperties": false,
+      "required": ["delivery_id", "project_id", "agent_id", "revision", "kind", "purpose", "state", "reason", "created_at", "updated_at", "thread_ref", "run_id", "process_outcome", "thread_reply_observed", "correlation_id", "parent_delivery_id", "hop_count", "status_url"],
+      "properties": {
+        "delivery_id": {"$ref": "project.schema.json#/$defs/Id"}, "project_id": {"$ref": "project.schema.json#/$defs/Id"}, "agent_id": {"$ref": "project.schema.json#/$defs/Id"},
+        "revision": {"$ref": "#/$defs/Revision"}, "kind": {"enum": ["call", "message", "wake"]},
+        "purpose": {"enum": ["task", "notification"], "description": "Service assigned. Only replyAsOwner's optional wake is notification, bound to the ASK answered. Other routes create task. Requests cannot choose purpose."},
+        "state": {"enum": ["queued", "dispatching", "running", "awaiting_manual", "completed", "failed", "cancelled", "uncertain"]},
+        "reason": {"type": ["string", "null"], "maxLength": 2000},
+        "created_at": {"$ref": "#/$defs/Timestamp"}, "updated_at": {"$ref": "#/$defs/Timestamp"},
+        "thread_ref": {"anyOf": [{"$ref": "#/$defs/ThreadRef"}, {"type": "null"}]},
+        "run_id": {"anyOf": [{"$ref": "project.schema.json#/$defs/Id"}, {"type": "null"}]},
+        "process_outcome": {"enum": ["not_started", "running", "succeeded", "failed", "cancelled", "unknown", "not_applicable"]},
+        "thread_reply_observed": {"type": "boolean"},
+        "correlation_id": {"$ref": "project.schema.json#/$defs/Id"},
+        "parent_delivery_id": {"anyOf": [{"$ref": "project.schema.json#/$defs/Id"}, {"type": "null"}]},
+        "hop_count": {"type": "integer", "minimum": 0},
+        "status_url": {"type": "string", "pattern": "^/api/v1/projects/[^/]+/calls/[^/]+$"}
+      },
+      "description": "A task without a required member reply fails with missing_reply despite process success. A notification completes with reason null on successful process exit, independently of thread_reply_observed; this claims only that the turn finished, not that the answer was acted upon. Manual notifications stay awaiting_manual. Failure/cancel/uncertain outcomes are preserved. No run-attributed follow_ups inferred from handwritten stamps. uncertain never auto-replays. Agent hierarchy/correlation fields are service assigned. Cancellation can be requested before its terminal confirmation."
+    },
+    "QueuedDelivery": {"allOf": [{"$ref": "#/$defs/Delivery"}, {"properties": {"state": {"const": "queued"}}}]},
+    "Run": {
+      "type": "object", "additionalProperties": false,
+      "required": ["run_id", "delivery_id", "agent_id", "session_generation", "state", "started_at", "finished_at", "exit_code"],
+      "properties": {
+        "run_id": {"$ref": "project.schema.json#/$defs/Id"}, "delivery_id": {"$ref": "project.schema.json#/$defs/Id"}, "agent_id": {"$ref": "project.schema.json#/$defs/Id"},
+        "session_generation": {"type": "integer", "minimum": 1},
+        "state": {"enum": ["running", "succeeded", "failed", "cancelled", "unknown"]},
+        "started_at": {"$ref": "#/$defs/Timestamp"}, "finished_at": {"anyOf": [{"$ref": "#/$defs/Timestamp"}, {"type": "null"}]},
+        "exit_code": {"type": ["integer", "null"]}
+      }
+    },
+    "StartedRun": {"allOf": [{"$ref": "#/$defs/Run"}, {"properties": {"state": {"const": "running"}, "finished_at": {"type": "null"}, "exit_code": {"type": "null"}}}]},
+    "FinishedRun": {"allOf": [{"$ref": "#/$defs/Run"}, {"properties": {"state": {"enum": ["succeeded", "failed", "cancelled", "unknown"]}, "finished_at": {"$ref": "#/$defs/Timestamp"}}}]},
+    "ProjectChanged": {
+      "type": "object", "additionalProperties": false, "required": ["project_id", "revision", "change"],
+      "properties": {"project_id": {"$ref": "project.schema.json#/$defs/Id"}, "revision": {"$ref": "#/$defs/Revision"}, "change": {"enum": ["registered", "config_saved", "applied", "apply_failed"]}}
+    },
+    "ThreadChanged": {
+      "type": "object", "additionalProperties": false, "required": ["thread_ref", "revision", "change", "status"],
+      "properties": {"thread_ref": {"$ref": "#/$defs/ThreadRef"}, "revision": {"$ref": "#/$defs/Revision"}, "change": {"enum": ["created", "updated", "deleted", "parse_error"]}, "status": {"anyOf": [{"$ref": "#/$defs/ThreadStatus"}, {"type": "null"}]}}
+    },
+    "InboxChanged": {
+      "type": "object", "additionalProperties": false, "required": ["thread_ref"],
+      "properties": {"thread_ref": {"$ref": "#/$defs/ThreadRef"}},
+      "description": "Invalidation: refetch inbox; no duplicate authoritative answer text."
+    },
+    "ResetRequired": {
+      "type": "object", "additionalProperties": false, "required": ["reason", "earliest_event_id", "latest_event_id", "snapshot_url"],
+      "properties": {
+        "reason": {"enum": ["cursor_expired", "cursor_ahead", "store_rebuilt"]},
+        "earliest_event_id": {"$ref": "#/$defs/Cursor"}, "latest_event_id": {"$ref": "#/$defs/Cursor"},
+        "snapshot_url": {"type": "string", "pattern": "^/api/v1/projects/[^/]+$"}
+      },
+      "description": "Reconnect from a fresh project event_cursor after refetching visible resources; do not apply this frame as a domain update."
+    }
+  },
+  "examples": [{
+    "schema_version": 1, "event_id": "42", "project_id": "demo", "type": "thread.changed",
+    "occurred_at": "2026-10-24T00:00:00Z", "entity_id": "root/AGENT-001", "revision": "hash123", "correlation_id": "req123",
+    "payload": {"thread_ref": {"project_id": "demo", "log_id": "root", "thread_id": "AGENT-001"}, "revision": "hash123", "change": "updated", "status": "answered"}
+  }]
+}
