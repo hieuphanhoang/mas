@@ -11,9 +11,23 @@ import { useProjectEvents } from "../api/useProjectEvents";
 import { ProjectPicker } from "../components/ProjectPicker";
 import { Empty, ErrorNote, Loading, Pill, fmtTime } from "../components/ui";
 import { AgentChart, type ChartAgent, type ChartCall } from "../components/AgentChart";
-import { Glyph, Icon, type Harness } from "../components/icons";
+import { Icon, type Harness } from "../components/icons";
 
 const ACTIVE = new Set(["queued", "dispatching", "running"]);
+
+// Agent panel width: dragged by the Owner, remembered in this browser only.
+const DRAWER_KEY = "mas.drawerWidth";
+const DRAWER_DEFAULT = 460;
+const DRAWER_MIN = 340;
+export const clampDrawer = (w: number, viewport: number) => Math.round(Math.max(DRAWER_MIN, Math.min(w, viewport - 420)));
+
+function useDrawerWidth() {
+  const [w, setW] = useState(() => {
+    try { return Number(localStorage.getItem(DRAWER_KEY)) || DRAWER_DEFAULT; } catch { return DRAWER_DEFAULT; }
+  });
+  useEffect(() => { try { localStorage.setItem(DRAWER_KEY, String(w)); } catch { /* storage blocked */ } }, [w]);
+  return [w, (next: number) => setW(clampDrawer(next, window.innerWidth))] as const;
+}
 
 export function ControlRoomPage() {
   const { projectId } = useParams();
@@ -24,6 +38,7 @@ export function ControlRoomPage() {
   const stream = useProjectEvents(projectId, agents.data?.event_cursor, agents.dataUpdatedAt);
   const [selected, setSelected] = useState<string | null>(null);
   const [level, setLevel] = useState<string>("all");
+  const [drawerW, setDrawerW] = useDrawerWidth();
 
   const levels = useMemo(() => (project.data?.config.levels ?? []).slice().sort((a, b) => a.order - b.order), [project.data]);
   const chartAgents = useMemo<ChartAgent[]>(() => (agents.data?.items ?? []).map((a) => ({
@@ -66,7 +81,7 @@ export function ControlRoomPage() {
           />
         </div>
       )}
-      <div className={`room__grid ${selectedAgent ? "room__grid--drawer" : ""}`}>
+      <div className={`room__grid ${selectedAgent ? "room__grid--drawer" : ""}`} style={{ "--drawer-w": `${drawerW}px` } as React.CSSProperties}>
         <div className="lanes">
           {levels.filter((l) => level === "all" || l.id === level).map((l) => (
             <div key={l.id} className="level">
@@ -81,10 +96,41 @@ export function ControlRoomPage() {
           ))}
         </div>
         {/* key = project + agent: drafts, conversation thread and call form never carry over to another agent (AGENT-005 #2) */}
-        {selectedAgent && projectId && <Drawer key={`${projectId}/${selectedAgent.config.id}`} projectId={projectId} a={selectedAgent} onClose={() => setSelected(null)}
-          workingFolder={project.data?.config.folders.find((f) => f.id === selectedAgent.config.cwd_folder_id)?.path ?? null} />}
+        {selectedAgent && projectId && (
+          <div className="drawer-wrap">
+            <ResizeGrip width={drawerW} onResize={setDrawerW} />
+            <Drawer key={`${projectId}/${selectedAgent.config.id}`} projectId={projectId} a={selectedAgent} onClose={() => setSelected(null)}
+              workingFolder={project.data?.config.folders.find((f) => f.id === selectedAgent.config.cwd_folder_id)?.path ?? null} />
+          </div>
+        )}
       </div>
     </section>
+  );
+}
+
+/** Drag (or arrow keys) on the panel's left edge to make it wider or narrower; double-click resets. */
+function ResizeGrip({ width, onResize }: { width: number; onResize: (w: number) => void }) {
+  const start = (e: React.PointerEvent) => {
+    e.preventDefault();
+    const x0 = e.clientX;
+    const move = (ev: PointerEvent) => onResize(width + x0 - ev.clientX);
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      document.body.classList.remove("resizing");
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    document.body.classList.add("resizing");
+  };
+  const key = (e: React.KeyboardEvent) => {
+    if (e.key === "ArrowLeft") { e.preventDefault(); onResize(width + 40); }
+    if (e.key === "ArrowRight") { e.preventDefault(); onResize(width - 40); }
+  };
+  return (
+    <div className="drawer__grip" role="separator" aria-orientation="vertical" aria-label="Resize agent panel"
+      aria-valuenow={width} aria-valuemin={DRAWER_MIN} tabIndex={0} title="Drag to resize - double-click to reset"
+      onPointerDown={start} onKeyDown={key} onDoubleClick={() => onResize(DRAWER_DEFAULT)} />
   );
 }
 
@@ -103,8 +149,6 @@ export function toChartCalls(items: Pick<Delivery, "delivery_id" | "agent_id" | 
   });
 }
 
-const TONE_VAR = { ok: "var(--ok)", warn: "var(--amber)", bad: "var(--alert)", off: "var(--offline)", info: "var(--chart)" } as const;
-
 export function lampTone(s: AgentStatus["state"]): "ok" | "warn" | "bad" | "off" | "info" {
   switch (s) {
     case "idle": return "ok";
@@ -119,7 +163,7 @@ function Lane({ a, on, onSelect }: { a: AgentView; on: boolean; onSelect: () => 
   const s = a.status;
   return (
     <button className={`lane ${on ? "lane--on" : ""}`} onClick={onSelect}>
-      <Glyph harness={a.config.harness as Harness} size={16} color={TONE_VAR[lampTone(s.state)]} title={`${a.config.harness}, ${s.state}`} />
+      <i className={`lamp lamp--${lampTone(s.state)}`} title={s.state} />
       <span className="lane__name">{a.config.name}</span>
       <span className="lane__meta muted small">{a.config.harness} - {a.config.model}{a.config.effort ? ` (${a.config.effort})` : ""}</span>
       <span className="lane__state">

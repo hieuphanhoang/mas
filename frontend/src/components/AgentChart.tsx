@@ -1,6 +1,6 @@
 // The team chart: an interactive 3D (WebGL) chart of one project's agents.
 // The Owner is the compass rose at the centre, each level is a tick-marked ring, each agent is a
-// station drawn with its harness symbol and coloured by its state, allowed call routes are dashed
+// round station coloured by its state, allowed call routes are dashed
 // arcs and live calls are magenta tracers flying along their arc. Drag to turn, scroll to zoom,
 // click a station (or its label) to open that agent. Plain WebGL 1, no library.
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -22,7 +22,6 @@ interface Props {
   onSelect: (id: string) => void;
 }
 
-const SHAPE: Record<string, number> = { owner: 5, relay: 5, claude: 1, codex: 2, opencode: 3, gemini: 4 };
 const STATE_VAR: Record<ChartState, string> = {
   idle: "--ok", busy: "--amber", starting: "--amber", stopping: "--amber",
   needs_input: "--alert", error: "--alert", offline: "--offline", unknown: "--chart",
@@ -270,7 +269,7 @@ export function AgentChart({ title, subtitle, agents, levelCount, edges, calls, 
           pts.push({ p, size: 62 + 22 * k, col, a: 0.32 - 0.14 * k, shape: 6 });
         }
         if (a.id === s.selected || a.id === s.hovered) pts.push({ p, size: 54, col: palette["--chart"], a: a.id === s.selected ? 0.95 : 0.5, shape: 5 });
-        pts.push({ p, size: 34, col, a: a.state === "offline" ? 0.7 : 1, shape: SHAPE[a.harness] ?? 0 });
+        pts.push({ p, size: 34, col, a: a.state === "offline" ? 0.7 : 1, shape: 0 });
       }
       for (const [i, cl] of s.calls.entries()) {
         const a = cl.from ? s.positions.get(cl.from) : OWNER_POS, b = s.positions.get(cl.to);
@@ -371,7 +370,6 @@ export function AgentChart({ title, subtitle, agents, levelCount, edges, calls, 
     };
   }, [levelCount, reduced]);
 
-  const harnesses = Array.from(new Set(agents.map((a) => a.harness)));
   const recenter = () => { cam.current = { ...cam.current, yaw: 0.55, pitch: 0.58, zoom: 1, touched: performance.now() }; };
   const setLabel = (id: string) => (el: HTMLElement | null) => { if (el) labelRefs.current.set(id, el); else labelRefs.current.delete(id); };
 
@@ -408,7 +406,6 @@ export function AgentChart({ title, subtitle, agents, levelCount, edges, calls, 
       </div>
       <div className="chart__legend" aria-label="Legend">
         <span><Glyph harness="owner" size={13} /> you</span>
-        {harnesses.map((h) => <span key={h}><Glyph harness={h} size={12} /> {h}</span>)}
         <span><i className="lamp lamp--ok" /> idle</span>
         <span><i className="lamp lamp--warn" /> busy</span>
         <span><i className="lamp lamp--bad" /> needs you</span>
