@@ -59,14 +59,14 @@ npm --prefix frontend run build    # builds frontend\dist, which the backend ser
 uv run --project backend mas serve --real-adapters
 ```
 
-Open **http://127.0.0.1:8766**. The service listens on this PC only.
+Open **http://127.0.0.1:8790**. The service listens on this PC only.
 
 | Flag | Effect |
 |---|---|
 | `--real-adapters` | Agents run as real Claude Code / Codex sessions. This uses your model quota. |
 | `--fake-adapter` | A simulated agent that prints three lines and stops. No model calls; use it to try the page, **with its own `--state-dir`** (see below). |
 | (neither) | The page works, but no agent is ever started. |
-| `--port 8770` | Another port. |
+| `--port 8791` | Another port (the default is 8790). |
 | `--state-dir <folder>` | Where MAS keeps its own database (default `backend\state`). |
 
 Try the fake mode in a separate state folder and on a throwaway project, for example

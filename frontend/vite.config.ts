@@ -11,7 +11,7 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     proxy: {
-      "/api": { target: "http://127.0.0.1:8766", changeOrigin: false },
+      "/api": { target: "http://127.0.0.1:8790", changeOrigin: false },
     },
   },
   build: { outDir: "dist", sourcemap: true },
