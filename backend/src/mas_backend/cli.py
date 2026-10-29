@@ -15,7 +15,7 @@ def main():
     sub = parser.add_subparsers(dest="command", required=True)
     serve = sub.add_parser("serve")
     serve.add_argument("--host", choices=["127.0.0.1", "::1"], default="127.0.0.1")
-    serve.add_argument("--port", type=int, default=8766)
+    serve.add_argument("--port", type=int, default=8790)
     serve.add_argument("--settings", type=Path, default=REPO / "backend/dev.settings.json")
     serve.add_argument("--state-dir", type=Path, default=REPO / "backend/state")
     serve.add_argument("--contract-dir", type=Path, default=REPO / "docs/contract")
