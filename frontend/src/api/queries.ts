@@ -159,7 +159,7 @@ export function useAgentAction(id: string) {
     message: useMutation({ mutationFn: async (v: { agent: string; body: MessageRequest; key: string }) => (await post<Delivery>(a(v.agent, "message"), v.body, { idempotencyKey: v.key })).data, onSuccess: invalidate }),
     wake: useMutation({ mutationFn: async (v: { agent: string; key: string }) => (await post<Delivery>(a(v.agent, "wake"), undefined, { idempotencyKey: v.key })).data, onSuccess: invalidate }),
     stop: useMutation({ mutationFn: async (v: { agent: string; key: string }) => (await post<AgentStatus>(a(v.agent, "stop"), undefined, { idempotencyKey: v.key })).data, onSuccess: invalidate }),
-    resumeQueue: useMutation({ mutationFn: async (v: { agent: string; key: string }) => (await post<AgentStatus>(a(v.agent, "resume-queue"), undefined, { idempotencyKey: v.key })).data, onSuccess: invalidate }),
+    resumeQueue: useMutation({ mutationFn: async (v: { agent: string; key: string; confirmStopped?: boolean }) => (await post<AgentStatus>(a(v.agent, "resume-queue"), v.confirmStopped ? { confirm_stopped: true } : undefined, { idempotencyKey: v.key })).data, onSuccess: invalidate }),
     cancel: useMutation({ mutationFn: async (v: { call: string; key: string }) => (await post<Delivery>(`${p(id)}/calls/${enc(v.call)}/cancel`, undefined, { idempotencyKey: v.key })).data, onSuccess: invalidate }),
   };
 }

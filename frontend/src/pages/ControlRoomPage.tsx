@@ -260,8 +260,17 @@ function Drawer({ projectId, a, onClose, workingFolder }: { projectId: string; a
       <div className="row">
         <button className="btn" disabled={!member || act.wake.isPending} onClick={() => act.wake.mutate({ agent: a.config.id, key: idempotencyKey() })}>Wake up</button>
         <button className="btn" disabled={act.stop.isPending} onClick={() => act.stop.mutate({ agent: a.config.id, key: idempotencyKey() })}>Stop</button>
-        {s.queue_paused && <button className="btn" disabled={act.resumeQueue.isPending} onClick={() => act.resumeQueue.mutate({ agent: a.config.id, key: idempotencyKey() })}>Resume queue</button>}
+        {s.queue_paused && s.state !== "unknown" && <button className="btn" disabled={act.resumeQueue.isPending} onClick={() => act.resumeQueue.mutate({ agent: a.config.id, key: idempotencyKey() })}>Resume queue</button>}
       </div>
+      {s.state === "unknown" && (
+        <div className="note small">
+          MAS cannot tell whether {a.config.name}'s last run or terminal window is still going (for example after a restart).
+          If you are sure it has stopped, free the agent. Its session is kept.
+          <div className="row" style={{ marginTop: 8 }}>
+            <button className="btn" disabled={act.resumeQueue.isPending} onClick={() => act.resumeQueue.mutate({ agent: a.config.id, key: idempotencyKey(), confirmStopped: true })}>It has stopped - free {a.config.name}</button>
+          </div>
+        </div>
+      )}
       <ErrorNote error={act.wake.error ?? act.stop.error ?? act.resumeQueue.error} />
       <div className="tabs">
         {(["history", "call", "chat", "output"] as const).map((t) => <button key={t} className={`tab ${tab === t ? "tab--on" : ""}`} onClick={() => setTab(t)}>{t}</button>)}

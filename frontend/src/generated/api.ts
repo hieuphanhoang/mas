@@ -317,7 +317,18 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Clear pause after validation; no duplicate active writer. Stopping/uncertain run -> 409. */
+        /**
+         * @description Owner only. Without a body, clear pause after validation; stopping/unknown -> 409.
+         *     Optional confirm_stopped=true is the Owner's explicit assertion that the old
+         *     process and terminal have stopped. Only accepted for unknown status; known
+         *     active managed tasks, owned terminals or detected external sessions -> 409 agent_busy.
+         *     Preserve the session ID/generation, close stale window reservations, record
+         *     the confirmation, and end uncertain deliveries as failed with process_outcome
+         *     unknown and reason owner_confirmed_stopped. Their Run outcome remains unknown.
+         *     Clear the active run and queue pause; queued work may then dispatch. No process
+         *     adoption/termination and no automatic retry of the uncertain delivery.
+         *     The Owner must verify stopped processes; a missing scan result is not proof.
+         */
         post: operations["resumeAgentQueue"];
         delete?: never;
         options?: never;
@@ -682,6 +693,10 @@ export interface components {
             parent_delivery_id: components["schemas"]["Id"] | null;
             hop_count: number;
             status_url: string;
+        };
+        ResumeQueueRequest: {
+            /** @constant */
+            confirm_stopped: true;
         };
         ResumeWindowReceipt: {
             /** @constant */
@@ -1853,7 +1868,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ResumeQueueRequest"];
+            };
+        };
         responses: {
             200: components["responses"]["AgentControl"];
             default: components["responses"]["Error"];
