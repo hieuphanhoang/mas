@@ -37,13 +37,11 @@ def test_opencode_provider_environment_and_profile(model, tmp_path, monkeypatch)
     assert "--auto" not in record["argv"] and "--pure" in record["argv"]
     config = record["config"]
     assert config["agent"]["mas"]["permission"] == config["permission"]
-    assert config["permission"]["bash"] == {
-        "*": "deny", "mas call *": "allow",
-        "uv run --no-project .handoff/handoff.py *": "allow",
-        "uv run --no-project .handoff\\handoff.py *": "allow",
-    }
+    assert config["permission"]["bash"]["*"] == "deny"
+    assert config["permission"]["bash"]["mas call *"] == "allow"
+    assert config["permission"]["bash"]["uv run --no-project .handoff/handoff.py *"] == "allow"
     assert config["permission"]["task"] == "deny"
-    assert config["permission"]["edit"] == "allow"
+    assert config["permission"]["edit"] == {"*": "deny"}
     assert config["share"] == "disabled" and config["autoupdate"] is False
     assert record["auto_updates"] == "true"
     assert "fake-google-key-do-not-log" not in "".join(emitted)
@@ -121,3 +119,7 @@ def test_opencode_runtime_start_resume_and_busy_queue(real_runtime, tmp_path):
     assert len(rows) == 2
     assert "--session" not in rows[0]["argv"]
     assert rows[1]["argv"][rows[1]["argv"].index("--session") + 1] == session
+    label = config["project"]["name"] + " / " + config["agents"][1]["name"]
+    assert rows[0]["argv"][rows[0]["argv"].index("--title") + 1] == label
+    assert "--title" not in rows[1]["argv"]
+    assert rows[0]["prompt"].splitlines()[0] == label

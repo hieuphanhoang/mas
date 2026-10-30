@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import shutil
 import sys
 import time
 
@@ -20,7 +21,7 @@ if "--version" in sys.argv:
     raise SystemExit(0)
 if "--help" in sys.argv:
     print(
-        "SESSION_ID --json --sandbox --model --session-id --resume --output-format --permission-prompts --format --session --agent --pure",
+        "SESSION_ID --json --sandbox --model --session-id --resume --output-format --permission-prompts --format --session --agent --pure --title --name",
         file=sys.stderr if option("--harness") == "opencode" else sys.stdout,
     )
     raise SystemExit(0)
@@ -38,6 +39,8 @@ record = dict(
     pid=os.getpid(),
     inherited_session=any(k in os.environ for k in ("CLAUDECODE", "CODEX_THREAD_ID")),
     has_scoped_token="MAS_AGENT_TOKEN" in os.environ,
+    launch_path=os.environ.get("PATH"),
+    mas_executable=shutil.which("mas"),
 )
 if harness == "opencode":
     record.update(

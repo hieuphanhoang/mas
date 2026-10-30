@@ -15,7 +15,10 @@ from pathlib import Path
 import shutil
 import signal
 import subprocess
+import sysconfig
 import uuid
+
+from .guard_paths import handoff_commands, claude_edits, claude_python, mas_commands
 
 
 class AdapterError(Exception):
@@ -98,6 +101,9 @@ def clean_environment(extra=None):
     env.update(PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
     if extra:
         env.update(extra)
+    path_key = next((key for key in env if key.upper() == "PATH"), "PATH")
+    inherited_path = env.pop(path_key, "")
+    env["PATH"] = sysconfig.get_path("scripts") + (os.pathsep + inherited_path if inherited_path else "")
     return env
 
 
@@ -258,7 +264,7 @@ class Adapter:
                 ],
                 **opts,
             )
-            needed = ("--format", "--model", "--session", "--agent", "--pure") if self.harness == "opencode" else (
+            needed = ("--format", "--model", "--session", "--agent", "--pure", "--title") if self.harness == "opencode" else (
                 ("--json", "--sandbox", "--model")
                 if self.harness == "codex"
                 else (
@@ -266,6 +272,7 @@ class Adapter:
                     "--resume",
                     "--output-format",
                     "--permission-prompts",
+                    "--name",
                 )
             )
             help_output = help_text.stdout + (help_text.stderr if self.harness == "opencode" else "")
@@ -292,7 +299,7 @@ class Adapter:
         except (OSError, subprocess.TimeoutExpired, IndexError):
             return None, "Executable probe failed or timed out."
 
-    def argv(self, model, session_id=None, effort=None, candidate=None, smoke=False, permission_profile="default"):
+    def argv(self, model, session_id=None, effort=None, candidate=None, smoke=False, permission_profile="default", *, owned_paths=(), handoff_paths=(), cwd=None, session_label=None):
         if permission_profile not in ("default", "member"):
             raise AdapterError("unsupported_configuration")
         if not self.command or not model or model.startswith("-"):
@@ -306,6 +313,8 @@ class Adapter:
                     "--model", model, "--agent", "mas"]
             if session_id:
                 args += ["--session", session_id]
+            elif session_label:
+                args += ["--title", session_label]
             if effort:
                 args += ["--variant", effort]
             return args
@@ -328,11 +337,18 @@ class Adapter:
             args += (
                 ["--resume", session_id] if session_id else ["--session-id", candidate]
             )
+            if session_id is None and session_label:
+                args += ["--name", session_label]
             if effort:
                 args += ["--effort", effort]
             if permission_profile == "member" and not smoke:
-                args += ["--allowedTools", "Bash(uv run --no-project .handoff/handoff.py:*)", "Bash(mas call:*)",
-                         "PowerShell(uv run --no-project .handoff/handoff.py:*)", "PowerShell(mas call:*)", "Edit", "Write"]
+                python_allow, python_deny = claude_python(owned_paths, cwd)
+                deny_index = args.index("--disallowedTools", len(self.command)) + 2
+                args[deny_index:deny_index] = python_deny
+                args += ["--allowedTools",
+                         *[tool + "(" + command + ":*)" for tool in ("Bash", "PowerShell")
+                           for command in [*mas_commands(), *handoff_commands(handoff_paths)]],
+                         *claude_edits(owned_paths, cwd), *python_allow]
             if smoke:
                 args += [
                     "--tools",
@@ -379,6 +395,9 @@ class Adapter:
         extra_env=None,
         smoke=False,
         permission_profile="default",
+        owned_paths=(),
+        handoff_paths=None,
+        session_label=None,
     ):
         started = asyncio.get_running_loop().time()
         candidate = (
@@ -386,12 +405,16 @@ class Adapter:
             if self.harness == "claude" and session_id is None
             else None
         )
-        argv = self.argv(model, session_id, effort, candidate, smoke, permission_profile)
+        handoff_paths = [Path(cwd) / ".handoff/handoff.py"] if handoff_paths is None else handoff_paths
+        argv = self.argv(model, session_id, effort, candidate, smoke, permission_profile,
+                         owned_paths=owned_paths, handoff_paths=handoff_paths, cwd=cwd,
+                         session_label=session_label)
         env = clean_environment(extra_env)
         if self.harness == "opencode":
             from .opencode import launch_environment
             try:
-                env.update(launch_environment(model, permission_profile, env))
+                env.update(launch_environment(model, permission_profile, env, cwd=cwd,
+                    owned_paths=owned_paths, handoff_paths=handoff_paths))
             except ValueError:
                 return Outcome(None, session_id, "unsupported_configuration")
         secrets = [

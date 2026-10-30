@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import sysconfig
 import time
 
 from fastapi.testclient import TestClient
@@ -54,6 +55,17 @@ def turn(adapter, directory, session=None, timeout=3, cancelled=lambda: False):
         )
     )
     return result, sessions, output
+
+
+def test_launch_finds_service_mas_without_scripts_on_parent_path(tmp_path, monkeypatch):
+    inherited = str(tmp_path / "unrelated-bin")
+    monkeypatch.setenv("PATH", inherited)
+    result, _, _ = turn(fake("codex", tmp_path), tmp_path)
+    assert result.exit_code == 0 and result.reason is None
+    record = json.loads((tmp_path / "codex.jsonl").read_text().splitlines()[0])
+    scripts = Path(sysconfig.get_path("scripts"))
+    assert record["launch_path"] == str(scripts) + os.pathsep + inherited
+    assert Path(record["mas_executable"]) == scripts / ("mas.exe" if os.name == "nt" else "mas")
 
 
 @pytest.mark.parametrize("harness", ["claude", "codex", "opencode"])
@@ -122,10 +134,11 @@ def test_resume_id_mismatch_is_uncertain(harness, tmp_path):
 @pytest.mark.parametrize("harness", ["claude", "codex", "opencode"])
 def test_stop_and_timeout_own_process_tree(harness, tmp_path):
     started = time.monotonic()
+    record_path = tmp_path / (harness + ".jsonl")
     result, _, _ = turn(
         fake(harness, tmp_path, "child"),
         tmp_path,
-        cancelled=lambda: time.monotonic() - started > 0.2,
+        cancelled=lambda: record_path.is_file() and record_path.stat().st_size > 0,
     )
     assert result.cancelled is True
     assert time.monotonic() - started < 6
@@ -214,7 +227,15 @@ def test_runtime_start_resume_one_session_and_no_fake_identity(
         assert any(chunk["stream"] == "stderr" for chunk in output["chunks"])
     command = adapters[harness].command
     recorded = Path(command[command.index("--record") + 1])
-    prompt = json.loads(recorded.read_text(encoding="utf-8").splitlines()[0])["prompt"]
+    rows = [json.loads(line) for line in recorded.read_text(encoding="utf-8").splitlines()]
+    prompt = rows[0]["prompt"]
+    name = next(a["name"] for a in config["agents"] if a["id"] == target)
+    label = config["project"]["name"] + " / " + name
+    assert prompt.splitlines()[0] == label
+    assert rows[1]["prompt"].splitlines()[0] == label
+    if harness == "claude":
+        assert rows[0]["argv"][rows[0]["argv"].index("--name") + 1] == label
+        assert "--name" not in rows[1]["argv"]
     assert "Use the agents-collaboration-protocol skill and every skill in your skills list" in prompt
     assert "roster command for calling another member is `mas call <agent> --thread <ID>" in prompt
 
@@ -239,6 +260,8 @@ def test_runtime_launch_uses_workspace_local_offline_uv_cache(real_runtime, monk
         launch["cwd"] / ".agents" / "mas" / "uv-cache"
     )
     assert launch["extra_env"]["UV_OFFLINE"] == "true"
+    assert launch["owned_paths"]
+    assert launch["handoff_paths"] == [launch["cwd"] / ".handoff/handoff.py"]
 
 
 def test_runtime_busy_queues_stop_and_restart_reconcile(real_runtime, tmp_path):

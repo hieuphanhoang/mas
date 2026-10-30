@@ -32,10 +32,10 @@ class Handoff:
             body_path.write_bytes(body.encode("utf-8"))
             command += ["--body-file", str(body_path)]
         command += ["--", "--root", str(root), "--state-dir", ".handoff", *args]
-        env = dict(os.environ, UV_CACHE_DIR=str(self.cli.parent / "state/uv-cache"),
+        env = dict(os.environ, UV_CACHE_DIR=str(self.store.directory / "uv-cache"),
                    UV_OFFLINE="true", UV_PYTHON_DOWNLOADS="never", PYTHONUTF8="1")
         try:
-            return subprocess.run(command, cwd=self.cli.parent.parent, env=env, capture_output=True,
+            return subprocess.run(command, cwd=self.store.directory, env=env, capture_output=True,
                                   timeout=30, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         except (OSError, subprocess.TimeoutExpired):
             raise Problem(409, "uncertain", "Handoff execution was interrupted; inspect its journal before retry.")

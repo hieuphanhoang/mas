@@ -149,6 +149,8 @@ def test_active_config_and_apply_blocked(live):
 
 def test_owner_reply_exact_body_revision_and_retry(live):
     client, app, config = live
+    assert app.state.runtime.handoff.cli.name == "vendor_handoff.py"
+    assert not (Path(config["project"]["root"]) / ".handoff/handoff.py").exists()
     route = P + "/logs/main/threads/ASK-001"
     before = client.get("/api/v1" + route).json()
     text = "\r\n  Owner exact words: `quoted` $() | Unicode: caf\u00e9\r\n\r\n"
@@ -166,6 +168,18 @@ def test_owner_reply_exact_body_revision_and_retry(live):
     assert mutate(client, "POST", route + "/reply", payload, key="reply-exact-key").json() == result.json()
     assert client.get("/api/v1" + route).json()["markdown"] == after
     assert client.get("/api/v1/inbox").json()["items"] == []
+
+
+def test_owner_reply_does_not_execute_project_cli(live):
+    client, _, config = live
+    root = Path(config["project"]["root"])
+    (root / ".handoff/handoff.py").write_text("raise RuntimeError('project code must not run')\n")
+    route = P + "/logs/main/threads/ASK-001"
+    before = client.get("/api/v1" + route).json()
+    result = mutate(client, "POST", route + "/reply", dict(
+        body="Use the packaged CLI.", expected_revision=before["metadata"]["revision"]))
+    assert result.status_code == 201, result.text
+    assert client.get("/api/v1" + route).json()["markdown"].replace("\r\n", "\n").endswith("Use the packaged CLI.\n")
 
 
 def test_message_creates_then_reuses_thread(live):

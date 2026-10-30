@@ -1,5 +1,32 @@
 # MAS contract v1 - slice 1
 
+Revision 0.3.1 adds optional `{confirm_stopped: true}` to Owner-only `resume-queue`.
+After verifying the old process/window has stopped, the Owner can clear unknown
+liveness after restart. A known live writer still blocks this operation. Session
+identity stays unchanged; uncertain deliveries become failed with unknown process
+outcome, and their Run stays unknown. The confirmation is recorded; stale windows
+close and queued work resumes. No old delivery is retried. No-body behavior and
+all response shapes are unchanged; regenerate request types. This is an Owner
+assertion, not proof from process scanning or process adoption.
+
+Contract revision 0.3.0 (AGENT-005) adds Owner-only `resume-window` and history
+metadata to the existing calls list. Regenerate clients together for the new
+optional Delivery properties: `caller` (`kind`, `agent_id`), `run_started_at`,
+and `run_finished_at`. The list always populates them; other delivery shapes and
+SSE payloads may omit them. Existing receipts/events stay byte-for-byte unchanged,
+so no data migration or replay is needed. Pre-0.3 call-list cursors are invalid;
+start a fresh list. Missing historical parent/input data is `caller.kind=unknown`,
+never guessed to be the Owner. Times describe supervisor run records, not provider
+transcripts or proof that an uncertain process exited.
+
+The resume endpoint returns a launch receipt for one visible Windows terminal,
+not a managed turn. A reservation blocks dispatch before spawn and until the
+window exits. Failure to spawn releases it. On service restart an outstanding
+reservation is held unknown/paused until manually reconciled, without adopting
+or killing the Owner's process. The window inherits the selected profile and
+OpenCode provider settings but receives no managed agent token. It is not a new
+registered session. No transcript reading or live-turn streaming was added.
+
 Contract revision 0.2.0 (AGENT-004) is a coordinated pre-release local upgrade.
 Regenerate both clients and deploy them together. The required Delivery.purpose
 field is a breaking shape change under additionalProperties=false; older clients
@@ -78,6 +105,14 @@ including `default` for each available harness. Omitted agent prompt_file means
 `.agents/mas/prompts/<agent_id>.md` under its cwd folder: preview lists creation
 from role plus preamble, apply creates only missing files and preserves existing
 prompts. Explicit prompt paths must already exist.
+
+Each registered agent has one persisted harness session, created on its first
+managed turn and resumed by explicit session ID on subsequent turns. The service
+never substitutes a fresh session for an existing ID after a failure or restart.
+New Claude/OpenCode sessions are labeled `<project name> / <agent name>` through
+`--name` / `run --title`; the same label is the launch prompt's first line for
+Codex. Resumes do not rename existing sessions or replace their conversation.
+This history-label clarification (AGENT-005 H1) does not change HTTP schemas.
 
 For SSE, first read the project event_cursor, fetch the visible resources, then
 subscribe with `?after=<cursor>`. Apply domain events by event ID, ignore duplicate

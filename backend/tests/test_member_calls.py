@@ -25,7 +25,7 @@ def test_member_profile_rules_and_capabilities(monkeypatch):
     assert "Bash(mas call:*)" in argv
     assert "PowerShell(uv run --no-project .handoff/handoff.py:*)" in argv
     assert "PowerShell(mas call:*)" in argv
-    assert "Edit" in argv and "Write" in argv
+    assert "Edit" not in argv and "Write" not in argv
     assert argv[argv.index("--permission-prompts") + 1] == "none"
     assert "--allowedTools" not in adapter.argv("model", candidate="uuid")
     codex = Adapter("codex", ["fake-codex"])
@@ -81,6 +81,12 @@ def test_agent_side_mas_call_creates_scoped_child_delivery(live):
     active = poll(client, P + "/calls/" + parent["delivery_id"], lambda d: d["state"] == "running").json()
     secret = app.state.runtime.issue_credential("mas-self", "codex", active["run_id"])
     app.state.store.db.commit()
+    denied = client.post("/api/v1" + A + "/resume-window", headers={
+        "Authorization": "Bearer " + secret, "Idempotency-Key": "agent-resume-denied"})
+    assert denied.status_code == 403
+    denied = client.post("/api/v1" + A + "/resume-queue", json={"confirm_stopped": True}, headers={
+        "Authorization": "Bearer " + secret, "Idempotency-Key": "agent-confirm-denied"})
+    assert denied.status_code == 403
     class Bridge(BaseHTTPRequestHandler):
         def do_GET(self):
             self.forward()

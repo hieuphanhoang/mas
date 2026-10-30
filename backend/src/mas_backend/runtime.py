@@ -16,8 +16,13 @@ from .logs import LIVE
 from .scaffold import read_file
 from .adapters import Adapter, Outcome
 from .busy import ExternalSessions
+from . import resume_window
 
 TERMINAL = {"completed", "failed", "cancelled"}
+
+
+def session_label(record, agent):
+    return " ".join(f"{record['config']['project']['name']} / {agent['name']}".splitlines())
 
 
 class Runtime:
@@ -45,6 +50,7 @@ class Runtime:
         )
         self.api_url = "http://127.0.0.1:8790/api/v1"
         self.external_reason = ExternalSessions().reason
+        self.windows = resume_window.Windows(store)
         self.tasks = {}
         self.pump_task = None
         self.closing = False
@@ -74,6 +80,13 @@ class Runtime:
                         run,
                         correlation=delivery["correlation_id"],
                     )
+        # Never adopt an Owner terminal after restart or guess that it exited.
+        for window in store.documents("resume_window"):
+            if window["state"] != "closed":
+                status = self.status(window["project_id"], window["agent_id"])
+                status.update(state="unknown", queue_paused=True,
+                              reason="Owner terminal reservation needs reconciliation after restart.")
+                self.save_status(window["project_id"], status)
         store.db.commit()
 
     def agent(self, project_id, agent_id):
@@ -156,6 +169,56 @@ class Runtime:
             raise Problem(404, "not_found", "Unknown delivery.")
         return value
 
+    def call_history(self, delivery):
+        intent = self.store.get("delivery_input", delivery["delivery_id"]) or {}
+        parent = self.store.get("delivery", delivery["parent_delivery_id"] or "") or {}
+        caller_id = intent.get("caller_agent_id") or parent.get("agent_id")
+        kind = "agent" if caller_id else "unknown" if delivery["parent_delivery_id"] else "owner"
+        run = self.store.get("run", delivery["run_id"] or "") or {}
+        return dict(delivery, caller=dict(kind=kind, agent_id=caller_id),
+                    run_started_at=run.get("started_at"), run_finished_at=run.get("finished_at"))
+
+    def resume_window(self, project_id, agent_id):
+        record, agent = self.agent(project_id, agent_id)
+        adapter = self.adapters.get(agent["harness"])
+        if self.fake or not resume_window.supported() or not adapter or not adapter.command:
+            raise Problem(422, "unsupported_capability", "Interactive resume requires a real supported harness on Windows.")
+        status = self.status(project_id, agent_id)
+        if status["active_run_id"] or status["state"] in ("starting", "busy", "stopping", "unknown"):
+            raise Problem(409, "agent_busy", "A managed or uncertain writer prevents interactive resume.")
+        if not status["session_id"]:
+            raise Problem(422, "no_session", "This agent has no session to resume.")
+        record, agent = self.validate_target(project_id, agent_id, capacity=False)
+        held = self.windows.reason(project_id, agent_id) or self.external_reason(agent["harness"], status["session_id"])
+        if held:
+            raise Problem(409, "agent_busy", held)
+        cwd = resolve(record["config"], dict(folder_id=agent["cwd_folder_id"], path="."))
+        command, env = resume_window.prepare(adapter, agent, status["session_id"], cwd,
+            [resolve(record["config"], ref) for ref in agent["owns"]],
+            [resolve(record["config"], dict(folder_id=log["folder_id"],
+                path=log["relative_path"].rstrip("/") + "/handoff.py"))
+             for log in record["config"]["logs"] if log["id"] in agent["log_ids"]])
+        self.windows.open(project_id, agent_id, command, env, cwd)
+        self.refresh_window_reason(project_id, agent_id)
+        return dict(opened=True, command=command, working_folder=str(cwd))
+
+    def refresh_window_reason(self, project_id, agent_id):
+        held = self.windows.reason(project_id, agent_id)
+        status = self.store.get("agent_status", f"{project_id}:{agent_id}")
+        if not status or status["state"] == "unknown":
+            return False
+        if held:
+            reason = "Owner terminal open"
+        elif status["reason"] == "Owner terminal open":
+            reason = None
+        else:
+            return False
+        if status["reason"] == reason:
+            return False
+        status["reason"] = reason
+        self.save_status(project_id, status)
+        return True
+
     def save_delivery(self, delivery, queued=False):
         delivery.update(revision=token(), updated_at=stamp())
         self.store.put("delivery", delivery["delivery_id"], delivery)
@@ -206,6 +269,8 @@ class Runtime:
                 resume=True,
                 stop=True,
             )
+        result["attach"] = bool(not self.fake and resume_window.supported()
+            and agent["harness"] in self.adapters and result["availability"] == "available")
         return result
 
     def views(self, project_id):
@@ -221,7 +286,7 @@ class Runtime:
         self.store.db.commit()
         return dict(items=items, event_cursor=self.store.cursor(project_id))
 
-    def validate_target(self, project_id, agent_id, *, applied=True, capacity=True):
+    def validate_target(self, project_id, agent_id, *, applied=True, capacity=True, allow_unknown=False):
         record, agent = self.agent(project_id, agent_id)
         if agent["harness"] == "gemini":
             raise Problem(
@@ -270,7 +335,7 @@ class Runtime:
                 "config_not_applied",
                 "Apply the current configuration before dispatch.",
             )
-        if self.status(project_id, agent_id)["state"] == "unknown":
+        if not allow_unknown and self.status(project_id, agent_id)["state"] == "unknown":
             raise Problem(
                 409,
                 "uncertain",
@@ -550,11 +615,13 @@ class Runtime:
         self.save_status(project_id, status)
         return delivery
 
-    def control(self, project_id, agent_id, action):
-        self.agent(project_id, agent_id)
+    def control(self, project_id, agent_id, action, *, confirm_stopped=False):
+        _, agent = self.agent(project_id, agent_id)
         status = self.status(project_id, agent_id)
         if action == "resume-queue":
-            self.validate_target(project_id, agent_id, capacity=False)
+            self.validate_target(project_id, agent_id, capacity=False, allow_unknown=confirm_stopped)
+            if confirm_stopped:
+                self.reconcile_stopped(project_id, agent, status)
             if status["state"] in ("stopping", "unknown"):
                 raise Problem(
                     409,
@@ -571,6 +638,49 @@ class Runtime:
                     status["state"] = "stopping"
         self.save_status(project_id, status)
         return status
+
+    def reconcile_stopped(self, project_id, agent, status):
+        """Owner attests to liveness only, never to successful execution."""
+        agent_id = agent["id"]
+        if status["state"] != "unknown":
+            raise Problem(409, "uncertain", "Confirmation is only for unknown session liveness.")
+        deliveries = self.calls(project_id, agent_id)
+        if any(d["run_id"] in self.tasks and not self.tasks[d["run_id"]].done() for d in deliveries):
+            raise Problem(409, "agent_busy", "A managed task is still active.")
+        key = f"{project_id}:{agent_id}"
+        if key in self.windows.processes:
+            process = self.windows.processes[key]
+            if process is None or process.poll() is None:
+                raise Problem(409, "agent_busy", "Owner terminal is still open.")
+        if status["session_id"] and not self.fake:
+            held = self.external_reason(agent["harness"], status["session_id"])
+            if held:
+                raise Problem(409, "agent_busy", held)
+        now = stamp()
+        for delivery in deliveries:
+            if delivery["state"] != "uncertain":
+                continue
+            delivery.update(state="failed", process_outcome="unknown", reason="owner_confirmed_stopped")
+            self.save_delivery(delivery)
+            run = self.store.get("run", delivery["run_id"] or "")
+            if run:
+                run.update(state="unknown", finished_at=run["finished_at"] or now)
+                self.store.put("run", run["run_id"], run)
+                self.store.emit(project_id, "run.finished", run["run_id"], run,
+                                correlation=delivery["correlation_id"])
+                output = self.store.get("output", run["run_id"])
+                if output:
+                    output["eof"] = True
+                    self.store.put("output", run["run_id"], output)
+        window = self.store.get("resume_window", key)
+        if window:
+            window.update(state="closed", confirmed_stopped_at=now)
+            self.store.put("resume_window", key, window)
+        self.windows.processes.pop(key, None)
+        self.store.put("reconciliation", key, dict(confirmed_stopped_at=now,
+            session_id=status["session_id"], run_id=status["active_run_id"], source="owner"))
+        status.update(state="idle" if status["session_id"] else "offline",
+                      active_run_id=None, reason="Owner confirmed previous process stopped.")
 
     def cancel(self, project_id, delivery_id):
         delivery = self.delivery(project_id, delivery_id)
@@ -592,7 +702,8 @@ class Runtime:
         return delivery
 
     def active(self, project_id):
-        return any(
+        return any(self.windows.reason(project_id, a["id"])
+                   for a in self.store.project(project_id)["config"]["agents"]) or any(
             d["state"] in ("dispatching", "running", "uncertain")
             for d in self.calls(project_id)
         )
@@ -620,6 +731,10 @@ class Runtime:
             return
         for record in self.store.projects():
             project_id = record["config"]["project"]["id"]
+            # Window liveness must update lanes even with an empty/paused queue.
+            for agent in record["config"]["agents"]:
+                if self.refresh_window_reason(project_id, agent["id"]):
+                    self.store.db.commit()
             cap = min(2, record["config"]["call_policy"]["max_parallel"])
             for delivery in self.calls(project_id):
                 global_active = sum(
@@ -649,8 +764,9 @@ class Runtime:
                     current, agent = self.validate_target(
                         project_id, agent_id, capacity=False
                     )
-                    if not self.fake and status["session_id"]:
-                        held = self.external_reason(agent["harness"], status["session_id"])
+                    if status["session_id"]:
+                        held = self.windows.reason(project_id, agent_id) or (
+                            self.external_reason(agent["harness"], status["session_id"]) if not self.fake else None)
                         if held:
                             if delivery["reason"] != held:
                                 delivery["reason"] = held
@@ -864,12 +980,14 @@ class Runtime:
             "are available for permitted callbacks; never print or store that token in a project file. "
             "Use the agents-collaboration-protocol skill and every skill in your skills list to read the roster, protocol and assigned thread and write your reply. "
             "Your roster command for calling another member is `mas call <agent> --thread <ID> [--log <id>] [--note TEXT]`; reply with `uv run --no-project .handoff/handoff.py reply <ID> --frm YOUR_NAME --body-file reply.md --status answered` from that log's folder. "
+            "Use the thread ID (for example AGENT-004), not its file path, as <ID>. Save reply.md inside a path you own; never hand-edit the shared log or invent a timestamp. "
+            "Report what happened after you act; if an action fails, say so in the thread. "
         )
         if delivery["purpose"] == "notification":
             instructions += "The Owner answered the referenced ASK. This is a notification; no reply in that ASK is required. Read the answer and reorient without inventing work.\n"
         else:
             instructions += "Handle the referenced task and write your own attributed reply through the project's unchanged handoff CLI when a member reply is required.\n"
-        result = instructions + json.dumps(context, ensure_ascii=False)
+        result = session_label(record, agent) + "\n" + instructions + json.dumps(context, ensure_ascii=False)
         if len(result.encode("utf-8")) > 1024 * 1024:
             raise Problem(
                 413,
@@ -941,6 +1059,7 @@ class Runtime:
             )
             result = await self.adapters[agent["harness"]].run(
                 model=agent["model"],
+                session_label=session_label(record, agent),
                 prompt=prompt,
                 cwd=cwd,
                 session_id=status["session_id"],
@@ -962,6 +1081,10 @@ class Runtime:
                     MAS_LOG_ID=delivery["thread_ref"]["log_id"] if delivery["thread_ref"] else "",
                 ),
                 permission_profile=agent["permission_profile"],
+                owned_paths=[resolve(record["config"], ref) for ref in agent["owns"]],
+                handoff_paths=[resolve(record["config"], dict(folder_id=log["folder_id"],
+                    path=log["relative_path"].rstrip("/") + "/handoff.py"))
+                    for log in record["config"]["logs"] if log["id"] in agent["log_ids"]],
             )
         except asyncio.CancelledError:
             result = Outcome(None, status["session_id"], "cancelled", cancelled=True)

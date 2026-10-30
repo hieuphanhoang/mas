@@ -317,8 +317,55 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Clear pause after validation; no duplicate active writer. Stopping/uncertain run -> 409. */
+        /**
+         * @description Owner only. Without a body, clear pause after validation; stopping/unknown -> 409.
+         *     Optional confirm_stopped=true is the Owner's explicit assertion that the old
+         *     process and terminal have stopped. Only accepted for unknown status; known
+         *     active managed tasks, owned terminals or detected external sessions -> 409 agent_busy.
+         *     Preserve the session ID/generation, close stale window reservations, record
+         *     the confirmation, and end uncertain deliveries as failed with process_outcome
+         *     unknown and reason owner_confirmed_stopped. Their Run outcome remains unknown.
+         *     Clear the active run and queue pause; queued work may then dispatch. No process
+         *     adoption/termination and no automatic retry of the uncertain delivery.
+         *     The Owner must verify stopped processes; a missing scan result is not proof.
+         */
         post: operations["resumeAgentQueue"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}/agents/{agent_id}/resume-window": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+                agent_id: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Owner-only, no body. Open one visible Windows PowerShell terminal in the
+         *     agent's working folder, resuming its current explicit session ID with
+         *     its model, permissions and provider configuration. No prompt is sent.
+         *     Requires an applied configuration and explicitly enabled real adapters.
+         *     No session -> 422 no_session; unsupported platform/harness -> 422
+         *     unsupported_capability; active/uncertain/external writer -> 409 agent_busy.
+         *     A reservation is committed before launch and holds managed deliveries
+         *     queued while the terminal process lives, including harness startup.
+         *     Closing the terminal releases it; a launch failure releases it and returns
+         *     503 terminal_unavailable. Stop never kills the Owner's terminal.
+         *     Service restart leaves outstanding reservations unknown/paused for manual
+         *     reconciliation; no process adoption or guessed release. A receipt replay
+         *     returns the same 202 without opening another window, even after it closes.
+         *     MAS neither captures terminal output nor creates a managed Run for this
+         *     Owner session. It does not provide a managed-run agent bearer token.
+         */
+        post: operations["resumeAgentWindow"];
         delete?: never;
         options?: never;
         head?: never;
@@ -334,7 +381,15 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** @description Agent scope sees only calls it sent/received; newest created first, ID tie-break. */
+        /**
+         * @description Agent scope sees only calls it sent/received; newest created first, ID tie-break.
+         *     Each list item also contains caller, run_started_at and run_finished_at,
+         *     derived from durable delivery input and run records. Null times mean no
+         *     start/finish was recorded. These history fields are optional on Delivery
+         *     elsewhere (mutation receipts, individual calls and SSE are unchanged).
+         *     Pagination snapshots freeze history metadata too. Cursors issued before
+         *     0.3 return invalid_cursor; restart the list after upgrading.
+         */
         get: operations["listCalls"];
         put?: never;
         post?: never;
@@ -625,6 +680,12 @@ export interface components {
             updated_at: components["schemas"]["Timestamp"];
             thread_ref: components["schemas"]["ThreadRef"] | null;
             run_id: components["schemas"]["Id"] | null;
+            /** @description History projection on listCalls only. Not supplied by request bodies or required on stored receipts/events. */
+            caller?: components["schemas"]["CallCaller"];
+            /** @description History projection: run allocation time, null before dispatch. */
+            run_started_at?: components["schemas"]["Timestamp"] | null;
+            /** @description History projection: supervisor completion/reconciliation time, null while active or never started. Unknown outcomes do not prove process exit. */
+            run_finished_at?: components["schemas"]["Timestamp"] | null;
             /** @enum {unknown} */
             process_outcome: "not_started" | "running" | "succeeded" | "failed" | "cancelled" | "unknown" | "not_applicable";
             thread_reply_observed: boolean;
@@ -632,6 +693,17 @@ export interface components {
             parent_delivery_id: components["schemas"]["Id"] | null;
             hop_count: number;
             status_url: string;
+        };
+        ResumeQueueRequest: {
+            /** @constant */
+            confirm_stopped: true;
+        };
+        ResumeWindowReceipt: {
+            /** @constant */
+            opened: true;
+            /** @description Exact PowerShell script run in the new window, including nonsecret OpenCode settings. Provider credentials are inherited privately and are not returned. This is not a managed-run launch command. */
+            command: string;
+            working_folder: string;
         };
         NullableCursor: string | null;
         Error: {
@@ -668,7 +740,7 @@ export interface components {
             modes: ("managed" | "manual")[];
             resume: boolean;
             live_delivery: boolean;
-            /** @description Informational only; resume-window endpoint is later. */
+            /** @description Interactive Owner resume-window is available on this Windows host; a real adapter and existing session are still required. */
             attach: boolean;
             stop: boolean;
             guard_coverage: {
@@ -1142,6 +1214,12 @@ export interface components {
         };
         /** @description Monotonic sequence encoded as decimal string to avoid JavaScript precision loss. Compare as BigInt, never lexically. 0 precedes first event. */
         Cursor: string;
+        /** @description Derived from authenticated delivery input or the parent delivery. Owner has null agent_id; unknown is only for missing historical ancestry. No identity inferred from comment text. */
+        CallCaller: {
+            /** @enum {unknown} */
+            kind: "owner" | "agent" | "unknown";
+            agent_id: components["schemas"]["Id"] | null;
+        };
         /** @enum {unknown} */
         ThreadStatus: "open" | "answered" | "blocked" | "closed" | "withdrawn" | "superseded";
         Run: {
@@ -1284,6 +1362,12 @@ export interface components {
                     updated_at: components["schemas"]["Timestamp"];
                     thread_ref: components["schemas"]["ThreadRef"] | null;
                     run_id: components["schemas"]["Id"] | null;
+                    /** @description History projection on listCalls only. Not supplied by request bodies or required on stored receipts/events. */
+                    caller?: components["schemas"]["CallCaller"];
+                    /** @description History projection: run allocation time, null before dispatch. */
+                    run_started_at?: components["schemas"]["Timestamp"] | null;
+                    /** @description History projection: supervisor completion/reconciliation time, null while active or never started. Unknown outcomes do not prove process exit. */
+                    run_finished_at?: components["schemas"]["Timestamp"] | null;
                     /** @enum {unknown} */
                     process_outcome: "not_started" | "running" | "succeeded" | "failed" | "cancelled" | "unknown" | "not_applicable";
                     thread_reply_observed: boolean;
@@ -1291,6 +1375,12 @@ export interface components {
                     parent_delivery_id: components["schemas"]["Id"] | null;
                     hop_count: number;
                     status_url: string;
+                };
+                /** @description Derived from authenticated delivery input or the parent delivery. Owner has null agent_id; unknown is only for missing historical ancestry. No identity inferred from comment text. */
+                CallCaller: {
+                    /** @enum {unknown} */
+                    kind: "owner" | "agent" | "unknown";
+                    agent_id: components["schemas"]["Id"] | null;
                 };
                 QueuedDelivery: components["schemas"]["Delivery"] & {
                     /** @constant */
@@ -1778,9 +1868,39 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ResumeQueueRequest"];
+            };
+        };
         responses: {
             200: components["responses"]["AgentControl"];
+            default: components["responses"]["Error"];
+        };
+    };
+    resumeAgentWindow: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                project_id: components["parameters"]["ProjectId"];
+                agent_id: components["parameters"]["AgentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Terminal launch accepted, not proof of harness initialization or a model turn. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResumeWindowReceipt"];
+                };
+            };
             default: components["responses"]["Error"];
         };
     };

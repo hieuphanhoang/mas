@@ -248,6 +248,20 @@ class Timestamp(RootModel[AwareDatetime]):
     )
 
 
+class Kind2(Enum):
+    owner = 'owner'
+    agent = 'agent'
+    unknown = 'unknown'
+
+
+class CallCaller(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    kind: Kind2
+    agent_id: Id | None
+
+
 class Run(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
@@ -282,6 +296,25 @@ class ThreadStatus(Enum):
 
 class EventCursor(RootModel[Cursor]):
     root: Cursor
+
+
+class ResumeQueueRequest(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    confirm_stopped: Literal[True]
+
+
+class ResumeWindowReceipt(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    opened: Literal[True]
+    command: str = Field(
+        ...,
+        description='Exact PowerShell script run in the new window, including nonsecret OpenCode settings. Provider credentials are inherited privately and are not returned. This is not a managed-run launch command.',
+    )
+    working_folder: str
 
 
 class NullableCursor(RootModel[constr(max_length=2048) | None]):
@@ -360,7 +393,8 @@ class AdapterCapability(BaseModel):
     resume: bool
     live_delivery: bool
     attach: bool = Field(
-        ..., description='Informational only; resume-window endpoint is later.'
+        ...,
+        description='Interactive Owner resume-window is available on this Windows host; a real adapter and existing session are still required.',
     )
     stop: bool
     guard_coverage: GuardCoverage
@@ -567,6 +601,18 @@ class Delivery(BaseModel):
     updated_at: Timestamp
     thread_ref: ThreadRef | None
     run_id: Id | None
+    caller: CallCaller | None = Field(
+        None,
+        description='History projection on listCalls only. Not supplied by request bodies or required on stored receipts/events.',
+    )
+    run_started_at: Timestamp | None = Field(
+        None,
+        description='History projection: run allocation time, null before dispatch.',
+    )
+    run_finished_at: Timestamp | None = Field(
+        None,
+        description='History projection: supervisor completion/reconciliation time, null while active or never started. Unknown outcomes do not prove process exit.',
+    )
     process_outcome: ProcessOutcome
     thread_reply_observed: bool
     correlation_id: Id
@@ -1034,6 +1080,18 @@ class PayloadModel1(BaseModel):
     updated_at: Timestamp
     thread_ref: ThreadRef | None
     run_id: Id | None
+    caller: CallCaller | None = Field(
+        None,
+        description='History projection on listCalls only. Not supplied by request bodies or required on stored receipts/events.',
+    )
+    run_started_at: Timestamp | None = Field(
+        None,
+        description='History projection: run allocation time, null before dispatch.',
+    )
+    run_finished_at: Timestamp | None = Field(
+        None,
+        description='History projection: supervisor completion/reconciliation time, null while active or never started. Unknown outcomes do not prove process exit.',
+    )
     process_outcome: ProcessOutcome_1
     thread_reply_observed: bool
     correlation_id: Id

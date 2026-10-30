@@ -34,7 +34,9 @@ This guide covers installation, setting up a project, running the agents, and an
 - Python 3.12 (tested with 3.12.12) and [uv](https://docs.astral.sh/uv/)
 - Node.js 20.19+ or 22.12+ with npm (only to build the web page)
 - Git
-- For real agents: **Claude Code** and/or **Codex CLI**, installed and signed in
+- For real agents: **Claude Code** and/or **Codex CLI**, installed and signed in; for other models,
+  **opencode** (Gemini through `GEMINI_API_KEY` in the environment you start MAS from, or local
+  models through Ollama)
 - The **agents-collaboration-protocol** skill installed where your agent tools load skills from
   (`%USERPROFILE%\.claude\skills\` for Claude Code, `%USERPROFILE%\.agents\skills\` for Codex).
   Its `scripts/handoff.py` creates and writes the logs.
@@ -129,8 +131,8 @@ On the project page click **Edit project**. The editor has these tabs:
 |---|---|
 | Name, Id | How the agent is shown and called, for example `Opus-dev` / `opus-dev`. |
 | Level | Its lane group. |
-| Harness | `claude` or `codex` (`opencode` and `gemini` are planned; `relay` is a chat-only model you paste for). |
-| Model, Effort | The exact model, for example `claude-opus-5-5`, `high`. MAS never substitutes another model. |
+| Harness | `claude`, `codex` or `opencode` (`gemini` CLI is planned; `relay` is a chat-only model you paste for). |
+| Model, Effort | The exact model, for example `claude-opus-5-5`, `high`; for opencode `google/gemini-3.5-flash` or `ollama/qwen3.5:latest`. MAS never substitutes another model. |
 | Role | What this agent does. On the first apply it becomes the agent's role prompt file (see Apply). |
 | Working folder | Where its session runs. |
 | Owns / Reads | One `folder:path` per line. Owned paths must not overlap between agents. |
@@ -145,7 +147,7 @@ On the project page click **Edit project**. The editor has these tabs:
 | Profile | Claude Code | Codex CLI |
 |---|---|---|
 | `default` | No shell commands that need approval. The agent can read but cannot post replies or call others. | Commands inside its workspace, no network. Can reply, cannot call others. |
-| `member` | May run exactly the log tool (`handoff.py`) and `mas call`, and edit files. | Commands inside its workspace **with network to any host**, so it can reach MAS to call others. |
+| `member` | May run exactly the log tool (`handoff.py`) and `mas call`, edit files in its own folders, and run Python files and pytest inside its own folders (no `python -c`). A script it runs is not limited to its folder. | Commands inside its workspace **with network to any host**, so it can reach MAS to call others. |
 
 Use `member` for agents that take part in the conversation. Choose the Codex `member` profile only
 for agents you trust with network access.
@@ -178,7 +180,8 @@ There are two ways.
 
 **Chat with an agent.** Open **Control room**, click the agent's lane, open the **chat** tab, pick
 the log and write your request. MAS writes your words, unchanged, as a new thread and wakes the
-agent with it. Further messages from the same chat box go into the same thread.
+agent with it. Further messages from the same chat box go into the same thread. To carry on an
+earlier conversation instead, pick one of the agent's threads under **or continue**.
 
 **Call an agent about an existing thread.** Create the thread with the log tool:
 
@@ -195,15 +198,24 @@ From there the agents work on their own:
   posts its reply in the thread with `handoff.py`.
 - When it needs another agent, it opens a thread and runs `mas call <agent> --thread AGENT-007`.
   MAS checks that this call is allowed, queues it if the target is busy, and resumes the target's
-  own session. **One session per agent:** a busy agent is never started twice, and if you have an
-  agent's session open yourself in a terminal, MAS waits instead of starting a second copy.
+  own session. **One session per agent:** each registered agent keeps the same session for good,
+  a busy agent is never started twice, and if you have an agent's session open yourself in a
+  terminal, MAS waits instead of starting a second copy.
 - Limits stop runaway chains: calls beyond the chain depth or count are refused.
 
 ---
 
 ## 9. Watch the work
 
-**Control room** - one lane per agent, grouped by level:
+**Control room** - one lane per agent, grouped by level. The small mark before the name is the
+agent's tool (diamond Claude Code, square Codex, triangle opencode, circle relay) and its colour is
+the agent's state.
+
+Clicking an agent opens its panel on the right. Drag the panel's left edge to make it wider or
+narrower (double-click the edge to reset); the width is remembered in this browser. The
+conversation and run output boxes can be made taller by dragging their bottom-right corner.
+
+Each lane shows the state as a lamp:
 
 | Lamp | Meaning |
 |---|---|
@@ -215,7 +227,13 @@ From there the agents work on their own:
 The lane also shows the queue length, "paused" if you stopped it, and the session generation.
 Click a lane for its drawer:
 
-- **runs** - every call to this agent with its state. For a member called about a thread,
+- **Session** - the agent's session id and a command to open that same session yourself in
+  PowerShell (**Copy resume command**), or **Open in terminal** to have MAS open it in a new window.
+  While that window is open, the lane says "Owner terminal open" and calls to the agent wait; close
+  the window when you are done. opencode agents have no copy command (their provider settings come
+  from MAS), so use **Open in terminal**.
+- **history** - every call and message to this agent: when it started, who sent it (you or which
+  agent), the thread, the result and how long it took. For a member called about a thread,
   `completed` means it posted its reply there and `failed: missing_reply` means it finished
   without one. A helper (called with a brief) completes when its run ends; its sponsor records the
   result. `notified` means the agent was woken after you answered a question; no reply is expected
@@ -223,6 +241,13 @@ Click a lane for its drawer:
 - **output** - what the agent printed, live, while it runs.
 - **Wake up** - asks the agent to look at threads waiting on it. **Stop** - stops the current run
   and pauses its queue; **Resume queue** continues.
+- **It has stopped - free <agent>** - shown when MAS cannot tell whether an agent's last run or
+  terminal window is still going, typically after MAS or the PC restarted. Click it only when you
+  are sure it has stopped; the agent's session is kept.
+
+New sessions are named `<project> / <agent>`, so they are easy to find in your own history:
+`claude --resume` in the project folder, `codex resume --include-non-interactive`, or opencode's
+session list. Sessions created before this naming keep their old titles.
 
 **Threads** - every log of the project: "Awaiting owner", "Open", "Conversation history" and
 "All", and each thread rendered in full.
@@ -255,8 +280,9 @@ that log may be hidden.
 | A run ends `failed: missing_reply` | The agent finished without posting in its thread. Read its **output**; often its permission profile is `default`, which cannot run the log tool. Use `member`. |
 | Output shows "Permission ... denied" | The command is outside the agent's profile. Change the profile in the project editor, save, preview and apply. |
 | A call stays queued with "session open elsewhere" | That agent's session is open in a terminal. Close it; the call then runs. |
+| An agent is `unknown` and paused after a restart | MAS cannot tell whether its old run or terminal window is still going. Make sure it has stopped, then use **It has stopped - free** in its panel. |
 | Apply fails with `apply_failed` | The details name the file and the Windows error. Fix that cause (for example access denied, disk full, or a path over 260 characters, then a shorter project folder), and apply the same preview again: MAS finishes the partial apply. |
-| An action fails with `unsupported_capability` | Read the message. Usual causes: the tool is not installed or failed its check (see **Harnesses**), MAS was started without `--real-adapters`/`--fake-adapter`, the permission profile is not available for that tool, or the tool is planned (opencode, Gemini). |
+| An action fails with `unsupported_capability` | Read the message. Usual causes: the tool is not installed or failed its check (see **Harnesses**), MAS was started without `--real-adapters`/`--fake-adapter`, the permission profile is not available for that tool, or the tool is planned (Gemini CLI). |
 | The Codex `member` agent cannot call others | Check the Harnesses page: the profile must show "network on". |
 | The page shows "Bootstrap a local session first" | Reload the page; it creates its local session automatically. |
 
@@ -273,8 +299,9 @@ that log may be hidden.
   commands itself, and an agent with network access (Codex `member`) technically could run them,
   so give that profile only to agents you trust.
 - Every model turn uses your provider quota. MAS never falls back to another model.
-- One PC only in this version. opencode and Gemini CLI adapters, scheduled rituals (for example a
-  weekly review), cross-folder write leases and importing existing projects are planned.
+- One PC only in this version. A Gemini CLI adapter (Gemini models already work through opencode),
+  scheduled rituals (for example a weekly review), cross-folder write leases and importing existing
+  projects are planned.
 
 ---
 
@@ -294,4 +321,4 @@ npm --prefix frontend run dev                   # page with hot reload on http:/
 npm --prefix frontend run gen:api               # regenerate API types after a contract change
 ```
 
-This repository is developed by AI agents with the same protocol; see `AGENTS.md` and `.handoff/`.
+This repository is developed by AI agents working with the same protocol; `AGENTS.md` holds their notes.

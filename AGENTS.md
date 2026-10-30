@@ -10,7 +10,8 @@ shared API contract). See README.md for what it does and how to run it.
 
 ## Multi-agent protocol
 
-Several agents work this repository at once. Before writing anything:
+When this checkout has a `.handoff/` folder, several agents are working it at once (the folder is
+local to that setup and is never published). Before writing anything:
 
 1. Read `.handoff/PROTOCOL.md` - how the shared log works and what you may edit.
 2. Read `.handoff/ROSTER.md` - ownership and invocation mode. Never edit a

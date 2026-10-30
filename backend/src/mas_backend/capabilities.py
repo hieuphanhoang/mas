@@ -1,6 +1,7 @@
 """Version probes only: never start a model turn or change authentication."""
 from .common import stamp
 from .adapters import Adapter
+from .resume_window import supported
 
 
 def probe_capabilities():
@@ -20,7 +21,7 @@ def probe_capabilities():
         adapters.append(dict(harness=harness, availability=available, version=version, reason=reason,
             modes=["manual"] if harness == "relay" else ["managed", "manual"] if available == "available" else [],
             resume=available == "available", live_delivery=False,
-            attach=False, stop=available == "available", guard_coverage=dict(tool_paths="unsupported", shell_commands="unknown",
+            attach=available == "available" and supported(), stop=available == "available", guard_coverage=dict(tool_paths="unsupported", shell_commands="unknown",
             sandbox="unknown", limitations=["Lifecycle tested with fake subprocesses; live smoke and sandbox coverage remain unverified.",
                 "Only MAS-managed process trees are owned; external sessions are not adopted or killed.",
                 "Role/ownership instructions are workflow context, not OS enforcement."])))
@@ -30,7 +31,7 @@ def probe_capabilities():
                     profiles.append(dict(id=profile, harness=harness,
                         label="OpenCode " + profile,
                         description=("Read/skill tools; other tools denied." if profile == "default" else
-                                     "Read/skill tools, edits, mas call and handoff CLI shell prefixes; other tools denied.") +
+                                     "Read/skill tools, owned-path edits, mas call and exact registered-log handoff CLI shell prefixes; other tools denied.") +
                                     " No sandbox isolation or runtime prompts. Models use provider/model (google/... or ollama/...). "
                                     "Native Ollama num_ctx=32768 needs separately approved provisioning of ollama-ai-provider-v2@3.6.0; not bundled by MAS."))
                 continue
@@ -39,7 +40,7 @@ def probe_capabilities():
                              "Claude manual permissions with permission-prompts=none (requests requiring approval denied).") +
                             " No bypass or model fallback; independent ownership isolation is unverified."))
             profiles.append(dict(id="member", harness=harness, label="Member collaboration",
-                description=("Allow the handoff CLI and mas call Bash prefixes plus Edit/Write; other approval-requiring commands are denied." if harness == "claude" else
+                description=("Allow the handoff CLI and mas call Bash/PowerShell prefixes, owned-path Edit rules (also cover Write), and owned Python files/pytest targets without extra arguments. No inline Python or other modules; executed scripts are not isolated. Other approval-requiring commands are denied." if harness == "claude" else
                              "Network on: workspace-write with approval_policy=never and command network access enabled. The Owner accepted access to any host for this profile; not restricted to localhost.") +
                             " Owner selects at setup; no runtime permission prompts. Workflow ownership is not OS isolation."))
     return dict(adapters=adapters, permission_profiles=profiles, global_max_parallel=2, observed_at=stamp())
