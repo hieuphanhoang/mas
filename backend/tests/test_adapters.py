@@ -134,10 +134,11 @@ def test_resume_id_mismatch_is_uncertain(harness, tmp_path):
 @pytest.mark.parametrize("harness", ["claude", "codex", "opencode"])
 def test_stop_and_timeout_own_process_tree(harness, tmp_path):
     started = time.monotonic()
+    record_path = tmp_path / (harness + ".jsonl")
     result, _, _ = turn(
         fake(harness, tmp_path, "child"),
         tmp_path,
-        cancelled=lambda: time.monotonic() - started > 0.2,
+        cancelled=lambda: record_path.is_file() and record_path.stat().st_size > 0,
     )
     assert result.cancelled is True
     assert time.monotonic() - started < 6

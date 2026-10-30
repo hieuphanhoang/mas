@@ -40,7 +40,7 @@ def probe_capabilities():
                              "Claude manual permissions with permission-prompts=none (requests requiring approval denied).") +
                             " No bypass or model fallback; independent ownership isolation is unverified."))
             profiles.append(dict(id="member", harness=harness, label="Member collaboration",
-                description=("Allow the handoff CLI and mas call Bash/PowerShell prefixes plus owned-path Edit rules (also cover Write); other approval-requiring commands are denied." if harness == "claude" else
+                description=("Allow the handoff CLI and mas call Bash/PowerShell prefixes, owned-path Edit rules (also cover Write), and owned Python files/pytest targets without extra arguments. No inline Python or other modules; executed scripts are not isolated. Other approval-requiring commands are denied." if harness == "claude" else
                              "Network on: workspace-write with approval_policy=never and command network access enabled. The Owner accepted access to any host for this profile; not restricted to localhost.") +
                             " Owner selects at setup; no runtime permission prompts. Workflow ownership is not OS isolation."))
     return dict(adapters=adapters, permission_profiles=profiles, global_max_parallel=2, observed_at=stamp())

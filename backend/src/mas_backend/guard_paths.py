@@ -78,3 +78,53 @@ def claude_edits(owned_paths, cwd=None):
             if not path.is_file():
                 rules.append("Edit(" + pattern.rstrip("/") + "/**)")
     return rules
+
+
+def claude_python(owned_paths, cwd=None):
+    """Owned Python/test command text only; never a sandbox for script effects.
+
+    No argument suffix is granted. Deny traversal and whitespace in the varying
+    descendant part so a glob cannot also consume a second pytest target/option.
+    """
+    allow, deny = set(), set()
+    cwd = Path(cwd).resolve() if cwd is not None else None
+    commands = ("python", "uv run --no-project python",
+                "uv run --no-project pytest", "python -m pytest")
+    for value in owned_paths:
+        path = Path(value).resolve()
+        texts = {"Bash": {posix_drive(path)}, "PowerShell": {str(path)}}
+        if path.drive:
+            texts["Bash"].add("/" + posix_drive(path))
+        if cwd is not None and path.is_relative_to(cwd):
+            relative = path.relative_to(cwd)
+            texts["Bash"].add(relative.as_posix())
+            texts["PowerShell"].update((str(relative), relative.as_posix()))
+        is_file = path.is_file()
+        if is_file and path.suffix.lower() != ".py":
+            continue
+        for tool, text in ((tool, text) for tool, values in texts.items() for text in values):
+            # Do not interpret configured path characters as shell/rule syntax.
+            if text.startswith("-") or any(c in text for c in '*?[]"\'`$;\r\n\t'):
+                continue
+            # Absolute paths use quotes; relative paths also support the common
+            # unquoted form. Avoid redundant variants in Windows' bounded argv.
+            absolute = text.startswith("/") or (len(text) > 1 and text[1] == ":")
+            quotes = ('"',) if absolute or " " in text else ("", '"')
+            for command in commands:
+                pytest = command.endswith("pytest")
+                for quote in quotes:
+                    start = command + " " + quote
+                    patterns = []
+                    if is_file or pytest:
+                        patterns.append(start + text + quote)
+                    if not is_file:
+                        separators = ("/", "\\") if tool == "PowerShell" and os.name == "nt" and "/" not in text else (("\\",) if "\\" in text else ("/",))
+                        for separator in separators:
+                            prefix = start + text.rstrip("/\\") + separator
+                            patterns.append(prefix + ("*" if pytest else "*.py") + quote)
+                            # '*' in Claude shell rules includes whitespace.
+                            deny.add(f"{tool}({prefix}*{quote} *)")
+                    allow.update(f"{tool}({pattern})" for pattern in patterns)
+                for unsafe in ("..", "\t", "\r", "\n"):
+                    deny.add(f"{tool}({command} *{unsafe}*)")
+    return sorted(allow), sorted(deny)

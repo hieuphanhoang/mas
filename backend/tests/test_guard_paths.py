@@ -3,6 +3,7 @@ import asyncio
 import fnmatch
 import json
 import os
+import re
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 import pytest
@@ -114,3 +115,58 @@ def test_default_profile_does_not_gain_member_permissions(tmp_path):
     assert permission["edit"] == permission["bash"] == "deny"
     argv = Adapter("claude", ["fake"]).argv("exact", owned_paths=[tmp_path / "owned"])
     assert "--allowedTools" not in argv
+
+
+def test_claude_member_owned_python_commands(tmp_path):
+    owned = tmp_path / "haiku"
+    owned.mkdir()
+    adapter = fake("claude", tmp_path)
+    result = asyncio.run(adapter.run(
+        model="exact", prompt="Test the owned Python file.", cwd=tmp_path,
+        session_id=None, effort=None, timeout=3, cancelled=lambda: False,
+        on_session=lambda _: None, on_output=lambda *_: None,
+        permission_profile="member", owned_paths=[owned], handoff_paths=[],
+    ))
+    assert result.reason is None
+    argv = json.loads((tmp_path / "claude.jsonl").read_text(encoding="utf-8"))["argv"]
+    def section(flag):
+        values = argv[argv.index(flag) + 1:]
+        return values[:next((i for i, value in enumerate(values) if value.startswith("--")), len(values))]
+    allows, denies = section("--allowedTools"), section("--disallowedTools")
+    def matches(rule, tool, command):
+        if not rule.startswith(tool + "("):
+            return False
+        # Claude shell rules use '*' (including spaces), not gitignore or '?'.
+        pattern = rule[len(tool) + 1:-1].replace(":*", " *")
+        flags = re.I if tool == "PowerShell" else 0
+        return re.fullmatch(re.escape(pattern).replace(r"\*", ".*"), command, flags=flags) is not None
+    def permits(tool, command):
+        return (any(matches(r, tool, command) for r in allows)
+                and not any(matches(r, tool, command) for r in denies))
+    from mas_backend.guard_paths import posix_drive
+    for tool in ("Bash", "PowerShell"):
+        paths = {"haiku"}
+        if tool == "PowerShell":
+            paths.add(str(owned))
+        else:
+            paths.add(posix_drive(owned))
+            if owned.drive:
+                paths.add("/" + posix_drive(owned))
+        for command in ("python", "uv run --no-project python",
+                        "python -m pytest", "uv run --no-project pytest"):
+            for path in paths:
+                separator = "\\" if "\\" in path else "/"
+                for quote in (("", '"') if path == "haiku" else ('"',)):
+                    assert permits(tool, command + " " + quote + path + separator + "test_upper.py" + quote)
+            for bad in ("sonnet/test_upper.py", "haiku2/test_upper.py", "haiku/../sonnet/test.py",
+                        "haiku\\..\\sonnet\\test.py", str(tmp_path / "sonnet/test.py"),
+                        "haiku/test.py sonnet/test.py", '"haiku/test.py" "sonnet/test.py"'):
+                assert not permits(tool, command + " " + bad)
+        assert permits(tool, "python -m pytest haiku")
+        assert permits(tool, "uv run --no-project pytest haiku/tests")
+        if tool == "PowerShell" and os.name == "nt":
+            assert permits(tool, r"python haiku\test_upper.py")
+        for bad in ("python -c 'print(1)'", "uv run --no-project python -c 'print(1)'",
+                    "python -m http.server", "uv run --no-project python -m pip",
+                    "python sonnet/test.py", "pytest haiku", "node haiku/test.py"):
+            assert not permits(tool, bad)

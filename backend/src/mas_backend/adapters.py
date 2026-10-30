@@ -18,7 +18,7 @@ import subprocess
 import sysconfig
 import uuid
 
-from .guard_paths import handoff_commands, claude_edits, mas_commands
+from .guard_paths import handoff_commands, claude_edits, claude_python, mas_commands
 
 
 class AdapterError(Exception):
@@ -342,10 +342,13 @@ class Adapter:
             if effort:
                 args += ["--effort", effort]
             if permission_profile == "member" and not smoke:
+                python_allow, python_deny = claude_python(owned_paths, cwd)
+                deny_index = args.index("--disallowedTools", len(self.command)) + 2
+                args[deny_index:deny_index] = python_deny
                 args += ["--allowedTools",
                          *[tool + "(" + command + ":*)" for tool in ("Bash", "PowerShell")
                            for command in [*mas_commands(), *handoff_commands(handoff_paths)]],
-                         *claude_edits(owned_paths, cwd)]
+                         *claude_edits(owned_paths, cwd), *python_allow]
             if smoke:
                 args += [
                     "--tools",
