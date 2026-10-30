@@ -80,7 +80,7 @@ def test_terminal_command_uses_explicit_session_profile_and_private_environment(
 
 def test_resume_window_reserves_before_launch_replays_and_holds_queue(real_runtime, monkeypatch):
     client, app, _, _ = real_runtime
-    runtime = ready(app)
+    runtime = client.portal.call(ready, app)
     window = Window()
     launches = []
     monkeypatch.setattr(resume_window, "supported", lambda: True)
@@ -117,7 +117,7 @@ def test_resume_window_errors_release_and_restart_hold(real_runtime, monkeypatch
     runtime = app.state.runtime
     monkeypatch.setattr(resume_window, "supported", lambda: True)
     assert mutate(client, "POST", A + "/resume-window").json()["code"] == "no_session"
-    ready(app)
+    client.portal.call(ready, app)
     assert client.post("/api/v1" + A + "/resume-window", headers={"X-MAS-CSRF": "", "Idempotency-Key": "no-csrf-1"}).status_code == 403
     assert client.post("/api/v1" + A + "/resume-window").status_code == 422
     status = runtime.status("mas-self", "codex")
@@ -125,7 +125,7 @@ def test_resume_window_errors_release_and_restart_hold(real_runtime, monkeypatch
     runtime.save_status("mas-self", status)
     app.state.store.db.commit()
     assert mutate(client, "POST", A + "/resume-window").json()["code"] == "agent_busy"
-    ready(app)
+    client.portal.call(ready, app)
     runtime.external_reason = lambda *_: "session open elsewhere"
     assert mutate(client, "POST", A + "/resume-window").json()["code"] == "agent_busy"
     runtime.external_reason = lambda *_: None
@@ -148,7 +148,7 @@ def test_resume_window_errors_release_and_restart_hold(real_runtime, monkeypatch
 
 def test_call_history_metadata_and_snapshot(real_runtime):
     client, app, _, _ = real_runtime
-    runtime = ready(app)
+    runtime = client.portal.call(ready, app)
     runtime.external_reason = lambda *_: "session open elsewhere"
     first = mutate(client, "POST", A + "/call", dict(thread_ref=REF)).json()
     second = mutate(client, "POST", A + "/call", dict(thread_ref=REF)).json()
@@ -158,10 +158,12 @@ def test_call_history_metadata_and_snapshot(real_runtime):
     assert row["caller"] == dict(kind="owner", agent_id=None)
     assert row["run_started_at"] is row["run_finished_at"] is None
     cursor = listing.json()["next_cursor"]
-    intent = app.state.store.get("delivery_input", first["delivery_id"])
-    intent["caller_agent_id"] = "fable"
-    app.state.store.put("delivery_input", first["delivery_id"], intent)
-    app.state.store.db.commit()
+    def change_caller():
+        intent = app.state.store.get("delivery_input", first["delivery_id"])
+        intent["caller_agent_id"] = "fable"
+        app.state.store.put("delivery_input", first["delivery_id"], intent)
+        app.state.store.db.commit()
+    client.portal.call(change_caller)
     frozen = client.get("/api/v1" + P + "/calls?agent_id=codex&limit=1&cursor=" + cursor).json()["items"][0]
     assert frozen["caller"]["kind"] == "owner"
     runtime.external_reason = lambda *_: None
@@ -171,7 +173,7 @@ def test_call_history_metadata_and_snapshot(real_runtime):
     rows = {d["delivery_id"]: d for d in listing.json()["items"]}
     assert rows[first["delivery_id"]]["caller"] == dict(kind="agent", agent_id="fable")
     for row in rows.values():
-        run = app.state.store.get("run", row["run_id"])
+        run = client.portal.call(app.state.store.get, "run", row["run_id"])
         assert row["run_started_at"] == run["started_at"]
         assert row["run_finished_at"] == run["finished_at"]
-    assert "caller" not in app.state.store.get("delivery", first["delivery_id"])
+    assert "caller" not in client.portal.call(app.state.store.get, "delivery", first["delivery_id"])
