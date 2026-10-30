@@ -1,10 +1,8 @@
 # Pytest changes
 
-Compared with the preceding G1 run: 105 passed instead of 104 passed / 1 failed
-(70.50s; basetemp D:/temp/g1ok). History checks now wait for both calls when
-creation timestamps tie, instead of assuming request order determines run order.
-Compared with R2: one added case covers Owner-confirmed restart reconciliation,
-live-writer rejection, validation/authentication, unchanged session identity,
-unknown historical outcomes, idempotent replay and release of queued work.
+Compared with the passing G1 run: 106 passed instead of 105 (38.66s;
+basetemp D:/temp/h3full). One added mocked-window case checks the visible hold
+reason with an empty queue, clearing after exit, unchanged identity/pause state,
+and one status event per reason change rather than events on every polling tick.
 The existing Starlette/httpx deprecation warning is unchanged.
 No saved test reports were replaced or deleted; output is in the terminal.

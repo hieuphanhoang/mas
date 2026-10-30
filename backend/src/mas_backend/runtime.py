@@ -199,7 +199,25 @@ class Runtime:
                 path=log["relative_path"].rstrip("/") + "/handoff.py"))
              for log in record["config"]["logs"] if log["id"] in agent["log_ids"]])
         self.windows.open(project_id, agent_id, command, env, cwd)
+        self.refresh_window_reason(project_id, agent_id)
         return dict(opened=True, command=command, working_folder=str(cwd))
+
+    def refresh_window_reason(self, project_id, agent_id):
+        held = self.windows.reason(project_id, agent_id)
+        status = self.store.get("agent_status", f"{project_id}:{agent_id}")
+        if not status or status["state"] == "unknown":
+            return False
+        if held:
+            reason = "Owner terminal open"
+        elif status["reason"] == "Owner terminal open":
+            reason = None
+        else:
+            return False
+        if status["reason"] == reason:
+            return False
+        status["reason"] = reason
+        self.save_status(project_id, status)
+        return True
 
     def save_delivery(self, delivery, queued=False):
         delivery.update(revision=token(), updated_at=stamp())
@@ -713,6 +731,10 @@ class Runtime:
             return
         for record in self.store.projects():
             project_id = record["config"]["project"]["id"]
+            # Window liveness must update lanes even with an empty/paused queue.
+            for agent in record["config"]["agents"]:
+                if self.refresh_window_reason(project_id, agent["id"]):
+                    self.store.db.commit()
             cap = min(2, record["config"]["call_policy"]["max_parallel"])
             for delivery in self.calls(project_id):
                 global_active = sum(

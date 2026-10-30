@@ -244,3 +244,31 @@ def test_owner_confirmation_clears_restart_hold_without_replaying_old_work(real_
     poll(client, P + "/calls/" + queued["delivery_id"], lambda d: d["state"] == "failed")
     assert mutate(client, "POST", A + "/resume-queue", confirmation, key="confirm-stopped-1").json() == status
     assert client.portal.call(runtime.status, "mas-self", "codex")["session_id"] == before["session_id"]
+
+
+def test_window_reason_updates_without_queued_work_and_emits_once(real_runtime, monkeypatch):
+    client, app, _, _ = real_runtime
+    runtime = client.portal.call(ready, app)
+    window = Window()
+    monkeypatch.setattr(resume_window, "supported", lambda: True)
+    monkeypatch.setattr(resume_window, "launch", lambda *_: window)
+    assert mutate(client, "POST", A + "/resume-window").status_code == 202
+    def status(view):
+        return next(item["status"] for item in view["items"] if item["config"]["id"] == "codex")
+    view = client.get("/api/v1" + P + "/agents").json()
+    opened = status(view)
+    assert opened["state"] == "idle" and opened["reason"] == "Owner terminal open"
+    assert opened["queue_length"] == 0 and not opened["queue_paused"]
+    client.portal.call(runtime.tick)
+    assert client.get("/api/v1" + P + "/agents").json()["event_cursor"] == view["event_cursor"]
+    window.exited = True
+    closed_view = poll(client, P + "/agents", lambda v: status(v)["reason"] is None).json()
+    closed = status(closed_view)
+    assert closed["state"] == "idle" and closed["session_id"] == SESSION
+    assert not closed["queue_paused"] and closed["active_run_id"] is None
+    assert closed["revision"] != opened["revision"]
+    def last_event():
+        return json.loads(app.state.store.db.execute("SELECT data FROM events ORDER BY seq DESC LIMIT 1").fetchone()[0])
+    event = client.portal.call(last_event)
+    assert event["type"] == "agent.status_changed" and event["payload"]["reason"] is None
+    assert event["payload"]["revision"] == closed["revision"]
