@@ -1,7 +1,7 @@
 // Regression tests for Codex's frontend review findings in AGENT-005.
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { InboxPage } from "./InboxPage";
-import { ControlRoomPage, OutputPane } from "./ControlRoomPage";
+import { AgentsPage, OutputPane } from "./AgentsPage";
 import { FakeEventSource, Wrap, agentView, mockFetch, session } from "../test/mockApi";
 import { resetSession } from "../api/client";
 
@@ -58,7 +58,7 @@ test("#2 switching lanes never carries one agent's chat draft to another", async
     "GET /api/v1/projects/p/calls": () => ({ items: [], next_cursor: null, event_cursor: "0" }),
     "GET /api/v1/projects/p/logs": () => ({ items: [{ project_id: "p", log_id: "main", folder_id: "root", members: ["alpha", "beta"], freshness: { state: "current", observed_at: null, reason: null } }], event_cursor: "0" }),
   });
-  render(<Wrap path="/room/p" route="/room/:projectId"><ControlRoomPage /></Wrap>);
+  render(<Wrap path="/agents/p" route="/agents/:projectId"><AgentsPage /></Wrap>);
   fireEvent.click((await screen.findByText("Alpha")).closest("button")!);
   fireEvent.click(await screen.findByRole("button", { name: "chat" }));
   fireEvent.change(await screen.findByPlaceholderText(/written verbatim/), { target: { value: "Followup intended for A" } });

@@ -4,7 +4,7 @@ import type { SVGProps } from "react";
 
 const P: Record<string, string> = {
   projects: "M4 7.5 12 4l8 3.5-8 3.5-8-3.5Z M4 12l8 3.5 8-3.5 M4 16.5 12 20l8-3.5",
-  room: "M12 3v3 M12 18v3 M3 12h3 M18 12h3 M12 7.5a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9Z M12 11v1h1",
+  agents: "M12 3v3 M12 18v3 M3 12h3 M18 12h3 M12 7.5a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9Z M12 11v1h1",
   threads: "M5 6h14 M5 10h14 M5 14h9 M5 18h6 M17 15l3 3-3 3",
   inbox: "M4 13l2.5-7h11L20 13 M4 13v5h16v-5 M4 13h4.5l1 2h5l1-2H20",
   harness: "M9 3v5 M15 3v5 M7 8h10v3a5 5 0 0 1-10 0V8Z M12 16v5",

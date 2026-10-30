@@ -1,4 +1,4 @@
-import { agentThreads } from "./ControlRoomPage";
+import { agentThreads } from "./AgentsPage";
 import type { ThreadSummary } from "../api/types";
 
 const t = (id: string, from: string, to: string) => ({ thread_ref: { log_id: "main", thread_id: id }, from_name: from, to_name: to }) as unknown as ThreadSummary;

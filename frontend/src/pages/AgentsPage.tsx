@@ -27,7 +27,7 @@ function useDrawerWidth() {
   return [w, (next: number) => setW(clampDrawer(next, window.innerWidth))] as const;
 }
 
-export function ControlRoomPage() {
+export function AgentsPage() {
   const { projectId } = useParams();
   const nav = useNavigate();
   const project = useProject(projectId);
@@ -45,10 +45,10 @@ export function ControlRoomPage() {
   const selectedAgent = agents.data?.items.find((a) => a.config.id === selected) ?? null;
 
   return (
-    <section className="room">
+    <section className="agents">
       <div className="row row--between">
         <div className="row">
-          <ProjectPicker value={projectId} onChange={(id) => nav(`/room/${id}`)} />
+          <ProjectPicker value={projectId} onChange={(id) => nav(`/agents/${id}`)} />
           <div className="tabs">
             <button className={`tab ${level === "all" ? "tab--on" : ""}`} onClick={() => setLevel("all")}>All</button>
             {levels.map((l) => <button key={l.id} className={`tab ${level === l.id ? "tab--on" : ""}`} onClick={() => setLevel(l.id)}>{l.label}</button>)}
@@ -59,7 +59,7 @@ export function ControlRoomPage() {
       <ErrorNote error={project.error ?? agents.error} />
       {agents.isLoading && <Loading />}
       {agents.data && lanes.length === 0 && <Empty>No agents in this project yet. Add levels and agents on the <Link to={`/projects/${projectId}`}>project page</Link>.</Empty>}
-      <div className={`room__grid ${selectedAgent ? "room__grid--drawer" : ""}`} style={{ "--drawer-w": `${drawerW}px` } as React.CSSProperties}>
+      <div className={`agents__grid ${selectedAgent ? "agents__grid--drawer" : ""}`} style={{ "--drawer-w": `${drawerW}px` } as React.CSSProperties}>
         <div className="lanes">
           {levels.filter((l) => level === "all" || l.id === level).map((l) => (
             <div key={l.id} className="level">

@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, NavLink, Navigate, Route, Routes } from "react-router-dom";
 import { useTheme } from "./theme";
 import { ProjectsPage } from "../pages/ProjectsPage";
-import { ControlRoomPage } from "../pages/ControlRoomPage";
+import { AgentsPage } from "../pages/AgentsPage";
 import { ThreadsPage } from "../pages/ThreadsPage";
 import { InboxPage } from "../pages/InboxPage";
 import { CapabilitiesPage } from "../pages/CapabilitiesPage";
@@ -33,7 +33,7 @@ function Shell() {
         </div>
         <nav className="nav" aria-label="Main">
           <NavLink to="/projects"><Icon name="projects" />Projects</NavLink>
-          <NavLink to="/room"><Icon name="room" />Control room</NavLink>
+          <NavLink to="/agents"><Icon name="agents" />Agents</NavLink>
           <NavLink to="/threads"><Icon name="threads" />Threads</NavLink>
           <NavLink to="/inbox"><Icon name="inbox" />Inbox</NavLink>
           <NavLink to="/capabilities"><Icon name="harness" />Harnesses</NavLink>
@@ -49,8 +49,8 @@ function Shell() {
           <Route path="/" element={<Navigate to="/projects" replace />} />
           <Route path="/projects" element={<ProjectsPage />} />
           <Route path="/projects/:projectId" element={<ProjectsPage />} />
-          <Route path="/room" element={<ControlRoomPage />} />
-          <Route path="/room/:projectId" element={<ControlRoomPage />} />
+          <Route path="/agents" element={<AgentsPage />} />
+          <Route path="/agents/:projectId" element={<AgentsPage />} />
           <Route path="/threads" element={<ThreadsPage />} />
           <Route path="/threads/:projectId" element={<ThreadsPage />} />
           <Route path="/threads/:projectId/:logId/:threadId" element={<ThreadsPage />} />

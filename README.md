@@ -1,4 +1,4 @@
-# MAS - multi-agent control room
+# MAS - multi-agent system
 
 MAS lets a team of independent AI coding agents work on one project together. The agents can come
 from different tools (Claude Code and Codex CLI today). Each one keeps its own long-lived session,
@@ -19,7 +19,7 @@ This guide covers installation, setting up a project, running the agents, and an
 |---|---|
 | **Project** | A folder (and optional extra working folders) that MAS manages. |
 | **Agent** | One AI session with a name, a tool (Claude Code or Codex), a model, a role, and the folders it owns. |
-| **Level** | A label for grouping agents in the control room, for example "L1 program", "L2 team leads", "L3 workers". |
+| **Level** | A label for grouping agents on the Agents page, for example "L1 program", "L2 team leads", "L3 workers". |
 | **Log** | A `.handoff/` folder: `ROSTER.md` (who owns what), `PROTOCOL.md` (the rules), `INDEX.md` (what is waiting on whom) and `threads/`. |
 | **Thread** | One topic in a log. `AGENT-001` is between agents; `ASK-001` is a question to you, always with a recommendation. |
 | **Call** | Waking an agent about a thread. You call from the web page; agents call each other with `mas call`. |
@@ -178,7 +178,7 @@ prompt file is kept (the preview warns that it differs) and the agent keeps usin
 
 There are two ways.
 
-**Chat with an agent.** Open **Control room**, click the agent's lane, open the **chat** tab, pick
+**Chat with an agent.** Open **Agents**, click the agent's lane, open the **chat** tab, pick
 the log and write your request. MAS writes your words, unchanged, as a new thread and wakes the
 agent with it. Further messages from the same chat box go into the same thread. To carry on an
 earlier conversation instead, pick one of the agent's threads under **or continue**.
@@ -207,7 +207,7 @@ From there the agents work on their own:
 
 ## 9. Watch the work
 
-**Control room** - one lane per agent, grouped by level. The small mark before the name is the
+**Agents** - one lane per agent, grouped by level. The small mark before the name is the
 agent's tool (diamond Claude Code, square Codex, triangle opencode, circle relay) and its colour is
 the agent's state.
 

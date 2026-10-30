@@ -38,7 +38,7 @@ function ProjectList() {
                 <td>{p.agent_count}</td>
                 <td>{p.active_run_count}</td>
                 <td className="row">
-                  <Link to={`/room/${p.project_id}`}>Control room</Link>
+                  <Link to={`/agents/${p.project_id}`}>Agents</Link>
                   <Link to={`/threads/${p.project_id}`}>Threads</Link>
                 </td>
               </tr>
@@ -110,7 +110,7 @@ function ProjectDetail({ id }: { id: string }) {
         <h1 className="h1">{cfg.project.name} <span className="muted">({cfg.project.id})</span></h1>
         <div className="row">
           <ScaffoldPill state={rec.scaffold_state} />
-          <Link className="btn" to={`/room/${id}`}>Control room</Link>
+          <Link className="btn" to={`/agents/${id}`}>Agents</Link>
           <Link className="btn" to={`/threads/${id}`}>Threads</Link>
         </div>
       </div>

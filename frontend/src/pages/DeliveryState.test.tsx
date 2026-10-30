@@ -1,5 +1,5 @@
 import { render, screen } from "@testing-library/react";
-import { DeliveryState } from "./ControlRoomPage";
+import { DeliveryState } from "./AgentsPage";
 
 test("a completed notification reads 'notified', never as success", () => {
   render(<DeliveryState d={{ purpose: "notification", state: "completed" }} />);

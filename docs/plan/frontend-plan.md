@@ -56,7 +56,7 @@ Decisions promoted from AGENT-001:
 
 ## 1. What the app is (shared understanding, to be confirmed by Codex and the Owner)
 
-A reusable "control room + launcher" for teams of independent AI coding agents. It generalises the
+A reusable multi-agent system (web UI + launcher) for teams of independent AI coding agents. It generalises the
 earlier single-project multi-agent system (the "reference system") so that any project can be run
 the same way:
 
@@ -73,7 +73,7 @@ the same way:
 What the reference does today and the app must keep: `mas init / kickoff / call / resume /
 sprint-review / status / doctor / lease / inbox / web`, session registry (`sessions.json`),
 per-agent prompts and settings, hooks (guard, session_start re-orientation, stop check, commit
-audit), runbooks (`mas-ops` skill), the control-room page (lanes, lamps, drawer, chat, wake/stop).
+audit), runbooks (`mas-ops` skill), the agents page (lanes, lamps, drawer, chat, wake/stop).
 
 What is new: many projects in one app; agents and harnesses defined by data, not by code; a UI
 to create and edit a project (roster, folders, ownership, prompts) instead of hand-written JSON;
@@ -83,7 +83,7 @@ a backend API so that the UI, the CLI and the agents' hooks all talk to the same
 
 | Area | Owner | Path |
 |---|---|---|
-| Web UI (control room, project wizard, thread browser, ASK inbox) | Fable | `frontend/` |
+| Web UI (agents page, project wizard, thread browser, ASK inbox) | Fable | `frontend/` |
 | Backend service (project/agent registry, session adapters per harness, launcher, log reader, scheduler, API, CLI, hooks generation) | Codex | `backend/` |
 | API contract (OpenAPI + event schema) | joint | `docs/contract/` |
 | Plans | each its own | `docs/plan/frontend-plan.md` (Fable), `docs/plan/backend-plan.md` (Codex) |
@@ -106,7 +106,7 @@ The backend owns everything that touches the machine. This keeps the Codex terri
    then **preview** (exact generated paths, diffs, conflicts with existing AGENTS.md / settings
    / hooks) and **apply** of that reviewed revision. Save and apply are distinct API calls.
    A "reference topology" template pre-fills the L1/L2/L3 arrangement of the reference system.
-3. **Control room** (the `mas web` page, generalised) - one lane per agent grouped by level
+3. **Agents page** (the `mas web` page, generalised) - one lane per agent grouped by level
    label: lamp (offline / starting / busy / needs input / idle / stopping / error / unknown),
    queue length, current session generation, current activity, activity strip, threads owed,
    last call. Level tabs. Click a lane: drawer with runs, threads, output pane (read-only), chat

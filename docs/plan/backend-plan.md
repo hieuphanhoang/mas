@@ -110,7 +110,7 @@ release and exactly this one PC. The verbatim answer remains in that thread.
 
 ## 1. Agreement and changes to the frontend draft
 
-I agree with the control room plus launcher, independent resumable members,
+I agree with the web UI plus launcher, independent resumable members,
 multiple projects, file-based handoff record, and frontend/backend split in
 frontend-plan.md sections 1 and 2. The frontend talks only to the service;
 backend code, adapters, tests, CLI and generation templates live in backend/.

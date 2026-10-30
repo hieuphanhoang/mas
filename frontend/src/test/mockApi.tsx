@@ -20,7 +20,7 @@ export function mockFetch(routes: Record<string, Handler>) {
   return calls;
 }
 
-/** EventSource is missing in jsdom; the control room only needs it to exist. */
+/** EventSource is missing in jsdom; the agents page only needs it to exist. */
 export class FakeEventSource {
   onopen: (() => void) | null = null;
   onerror: (() => void) | null = null;

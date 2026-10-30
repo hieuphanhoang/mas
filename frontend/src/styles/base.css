@@ -195,10 +195,10 @@ fieldset.field { border: 0; padding: 0; margin: 0; }
 .md__table th, .md__table td { border: 1px solid var(--line); padding: 4px 9px; text-align: left; vertical-align: top; }
 .md hr { border: 0; border-top: 1px dashed var(--line-strong); margin: 14px 0; }
 
-/* ---------------------------------------------------------------- control room */
-.room__grid { display: grid; grid-template-columns: 1fr; gap: 18px; margin-top: 16px; }
-.room__grid--drawer { grid-template-columns: minmax(0, 1fr) var(--drawer-w, 460px); }
-@media (max-width: 1000px) { .room__grid--drawer { grid-template-columns: 1fr; } .drawer__grip { display: none; } }
+/* ---------------------------------------------------------------- agents page */
+.agents__grid { display: grid; grid-template-columns: 1fr; gap: 18px; margin-top: 16px; }
+.agents__grid--drawer { grid-template-columns: minmax(0, 1fr) var(--drawer-w, 460px); }
+@media (max-width: 1000px) { .agents__grid--drawer { grid-template-columns: 1fr; } .drawer__grip { display: none; } }
 .lanes { display: flex; flex-direction: column; gap: 14px; }
 .level__label { font: 500 11px var(--mono); text-transform: uppercase; letter-spacing: 0.14em; color: var(--ink-2); margin: 2px 0 6px; display: flex; gap: 10px; align-items: center; }
 .level__label::after { content: ""; flex: 1; height: 1px; background: var(--line); }

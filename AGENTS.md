@@ -1,6 +1,6 @@
 # Project Notes
 
-MAS: a multi-agent control room (backend/ Python service, frontend/ React UI, docs/contract/ the
+MAS: a multi-agent system (backend/ Python service, frontend/ React UI, docs/contract/ the
 shared API contract). See README.md for what it does and how to run it.
 
 - Python via uv (`uv sync --project backend`, `uv run --project backend ...`), never pip.
