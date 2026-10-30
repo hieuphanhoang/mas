@@ -77,8 +77,15 @@ def install_routes(app, runtime, events, body, mutation):
     async def control(project_id: str, agent_id: str, request: Request):
         data = await body(request)
         def action():
-            no_body(data)
-            return dict(status=200, body=runtime.control(project_id, agent_id, request.url.path.rsplit("/", 1)[1]))
+            action_name = request.url.path.rsplit("/", 1)[1]
+            confirmed = False
+            if action_name == "resume-queue" and data is not None:
+                if not isinstance(data, dict) or set(data) != {"confirm_stopped"} or data["confirm_stopped"] is not True:
+                    raise Problem(422, "validation_error", "Expected only confirm_stopped: true, or no body.")
+                confirmed = True
+            else:
+                no_body(data)
+            return dict(status=200, body=runtime.control(project_id, agent_id, action_name, confirm_stopped=confirmed))
         return mutation(request, data, action)
 
     @app.get("/api/v1/projects/{project_id}/calls")

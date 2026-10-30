@@ -1,5 +1,14 @@
 # MAS contract v1 - slice 1
 
+Revision 0.3.1 adds optional `{confirm_stopped: true}` to Owner-only `resume-queue`.
+After verifying the old process/window has stopped, the Owner can clear unknown
+liveness after restart. A known live writer still blocks this operation. Session
+identity stays unchanged; uncertain deliveries become failed with unknown process
+outcome, and their Run stays unknown. The confirmation is recorded; stale windows
+close and queued work resumes. No old delivery is retried. No-body behavior and
+all response shapes are unchanged; regenerate request types. This is an Owner
+assertion, not proof from process scanning or process adoption.
+
 Contract revision 0.3.0 (AGENT-005) adds Owner-only `resume-window` and history
 metadata to the existing calls list. Regenerate clients together for the new
 optional Delivery properties: `caller` (`kind`, `agent_id`), `run_started_at`,

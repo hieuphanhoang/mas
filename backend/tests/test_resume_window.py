@@ -1,5 +1,6 @@
 import base64
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -167,7 +168,10 @@ def test_call_history_metadata_and_snapshot(real_runtime):
     frozen = client.get("/api/v1" + P + "/calls?agent_id=codex&limit=1&cursor=" + cursor).json()["items"][0]
     assert frozen["caller"]["kind"] == "owner"
     runtime.external_reason = lambda *_: None
-    poll(client, P + "/calls/" + second["delivery_id"], lambda d: d["state"] == "failed")
+    # Calls created in the same timestamp tick are ordered by ID, not by which
+    # HTTP request returned first. Both must finish before asserting run times.
+    for delivery in (first, second):
+        poll(client, P + "/calls/" + delivery["delivery_id"], lambda d: d["state"] == "failed")
     listing = client.get("/api/v1" + P + "/calls?agent_id=codex")
     contract_response(listing, "/projects/{project_id}/calls")
     rows = {d["delivery_id"]: d for d in listing.json()["items"]}
@@ -177,3 +181,66 @@ def test_call_history_metadata_and_snapshot(real_runtime):
         assert row["run_started_at"] == run["started_at"]
         assert row["run_finished_at"] == run["finished_at"]
     assert "caller" not in client.portal.call(app.state.store.get, "delivery", first["delivery_id"])
+
+
+def test_owner_confirmation_clears_restart_hold_without_replaying_old_work(real_runtime):
+    client, app, _, adapters = real_runtime
+    runtime, store = app.state.runtime, app.state.store
+    first = mutate(client, "POST", A + "/call", dict(thread_ref=REF)).json()
+    done = poll(client, P + "/calls/" + first["delivery_id"], lambda d: d["state"] == "failed").json()
+    runtime.external_reason = lambda *_: "session open elsewhere"
+    queued = mutate(client, "POST", A + "/call", dict(thread_ref=REF)).json()
+    run_id = done["run_id"]
+    key = "mas-self:codex"
+    def restart():
+        delivery = store.get("delivery", first["delivery_id"])
+        delivery.update(state="running", process_outcome="running")
+        store.put("delivery", delivery["delivery_id"], delivery)
+        run = store.get("run", run_id)
+        run.update(state="running", finished_at=None)
+        store.put("run", run_id, run)
+        output = store.get("output", run_id)
+        output["eof"] = False
+        store.put("output", run_id, output)
+        status = runtime.status("mas-self", "codex")
+        status.update(state="busy", active_run_id=run_id)
+        runtime.save_status("mas-self", status)
+        store.put("resume_window", key, dict(project_id="mas-self", agent_id="codex", state="open"))
+        store.db.commit()
+        Runtime(store, app.state.logs, runtime.handoff, {}, real=True, adapters=adapters)
+        return runtime.status("mas-self", "codex")
+    before = client.portal.call(restart)
+    assert before["state"] == "unknown" and before["queue_paused"]
+    assert mutate(client, "POST", A + "/resume-queue").status_code == 409
+    for body in ({}, {"confirm_stopped": False}, {"confirm_stopped": 1}, {"confirm_stopped": True, "extra": 1}):
+        assert mutate(client, "POST", A + "/resume-queue", body).status_code == 422
+    confirmation = {"confirm_stopped": True}
+    assert mutate(client, "POST", A + "/stop", confirmation).status_code == 422
+    assert client.post("/api/v1" + A + "/resume-queue", json=confirmation,
+        headers={"X-MAS-CSRF": "", "Idempotency-Key": "confirm-no-csrf"}).status_code == 403
+    assert client.post("/api/v1" + A + "/resume-queue", json=confirmation).status_code == 422
+    runtime.tasks[run_id] = SimpleNamespace(done=lambda: False)
+    assert mutate(client, "POST", A + "/resume-queue", confirmation).json()["code"] == "agent_busy"
+    runtime.tasks.pop(run_id)
+    runtime.windows.processes[key] = Window()
+    assert mutate(client, "POST", A + "/resume-queue", confirmation).json()["code"] == "agent_busy"
+    runtime.windows.processes.pop(key)
+    assert mutate(client, "POST", A + "/resume-queue", confirmation).json()["code"] == "agent_busy"
+    runtime.external_reason = lambda *_: None
+    accepted = mutate(client, "POST", A + "/resume-queue", confirmation, key="confirm-stopped-1")
+    assert accepted.status_code == 200, accepted.text
+    contract_response(accepted, "/projects/{project_id}/agents/{agent_id}/resume-queue", "post", "200")
+    status = accepted.json()
+    assert status["state"] == "idle" and status["active_run_id"] is None and not status["queue_paused"]
+    assert status["session_id"] == before["session_id"]
+    assert status["session_generation"] == before["session_generation"]
+    historical = client.get("/api/v1" + P + "/calls/" + first["delivery_id"]).json()
+    assert historical["state"] == "failed" and historical["process_outcome"] == "unknown"
+    assert historical["reason"] == "owner_confirmed_stopped" and historical["run_id"] == run_id
+    assert client.portal.call(store.get, "run", run_id)["state"] == "unknown"
+    assert client.portal.call(store.get, "output", run_id)["eof"]
+    assert client.portal.call(store.get, "resume_window", key)["state"] == "closed"
+    assert client.portal.call(store.get, "reconciliation", key)["source"] == "owner"
+    poll(client, P + "/calls/" + queued["delivery_id"], lambda d: d["state"] == "failed")
+    assert mutate(client, "POST", A + "/resume-queue", confirmation, key="confirm-stopped-1").json() == status
+    assert client.portal.call(runtime.status, "mas-self", "codex")["session_id"] == before["session_id"]

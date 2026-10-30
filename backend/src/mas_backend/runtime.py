@@ -268,7 +268,7 @@ class Runtime:
         self.store.db.commit()
         return dict(items=items, event_cursor=self.store.cursor(project_id))
 
-    def validate_target(self, project_id, agent_id, *, applied=True, capacity=True):
+    def validate_target(self, project_id, agent_id, *, applied=True, capacity=True, allow_unknown=False):
         record, agent = self.agent(project_id, agent_id)
         if agent["harness"] == "gemini":
             raise Problem(
@@ -317,7 +317,7 @@ class Runtime:
                 "config_not_applied",
                 "Apply the current configuration before dispatch.",
             )
-        if self.status(project_id, agent_id)["state"] == "unknown":
+        if not allow_unknown and self.status(project_id, agent_id)["state"] == "unknown":
             raise Problem(
                 409,
                 "uncertain",
@@ -597,11 +597,13 @@ class Runtime:
         self.save_status(project_id, status)
         return delivery
 
-    def control(self, project_id, agent_id, action):
-        self.agent(project_id, agent_id)
+    def control(self, project_id, agent_id, action, *, confirm_stopped=False):
+        _, agent = self.agent(project_id, agent_id)
         status = self.status(project_id, agent_id)
         if action == "resume-queue":
-            self.validate_target(project_id, agent_id, capacity=False)
+            self.validate_target(project_id, agent_id, capacity=False, allow_unknown=confirm_stopped)
+            if confirm_stopped:
+                self.reconcile_stopped(project_id, agent, status)
             if status["state"] in ("stopping", "unknown"):
                 raise Problem(
                     409,
@@ -618,6 +620,49 @@ class Runtime:
                     status["state"] = "stopping"
         self.save_status(project_id, status)
         return status
+
+    def reconcile_stopped(self, project_id, agent, status):
+        """Owner attests to liveness only, never to successful execution."""
+        agent_id = agent["id"]
+        if status["state"] != "unknown":
+            raise Problem(409, "uncertain", "Confirmation is only for unknown session liveness.")
+        deliveries = self.calls(project_id, agent_id)
+        if any(d["run_id"] in self.tasks and not self.tasks[d["run_id"]].done() for d in deliveries):
+            raise Problem(409, "agent_busy", "A managed task is still active.")
+        key = f"{project_id}:{agent_id}"
+        if key in self.windows.processes:
+            process = self.windows.processes[key]
+            if process is None or process.poll() is None:
+                raise Problem(409, "agent_busy", "Owner terminal is still open.")
+        if status["session_id"] and not self.fake:
+            held = self.external_reason(agent["harness"], status["session_id"])
+            if held:
+                raise Problem(409, "agent_busy", held)
+        now = stamp()
+        for delivery in deliveries:
+            if delivery["state"] != "uncertain":
+                continue
+            delivery.update(state="failed", process_outcome="unknown", reason="owner_confirmed_stopped")
+            self.save_delivery(delivery)
+            run = self.store.get("run", delivery["run_id"] or "")
+            if run:
+                run.update(state="unknown", finished_at=run["finished_at"] or now)
+                self.store.put("run", run["run_id"], run)
+                self.store.emit(project_id, "run.finished", run["run_id"], run,
+                                correlation=delivery["correlation_id"])
+                output = self.store.get("output", run["run_id"])
+                if output:
+                    output["eof"] = True
+                    self.store.put("output", run["run_id"], output)
+        window = self.store.get("resume_window", key)
+        if window:
+            window.update(state="closed", confirmed_stopped_at=now)
+            self.store.put("resume_window", key, window)
+        self.windows.processes.pop(key, None)
+        self.store.put("reconciliation", key, dict(confirmed_stopped_at=now,
+            session_id=status["session_id"], run_id=status["active_run_id"], source="owner"))
+        status.update(state="idle" if status["session_id"] else "offline",
+                      active_run_id=None, reason="Owner confirmed previous process stopped.")
 
     def cancel(self, project_id, delivery_id):
         delivery = self.delivery(project_id, delivery_id)

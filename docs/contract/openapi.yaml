@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: MAS slice-1 API
-  version: 0.3.0
+  version: 0.3.1
   description: |
     Contract 0.2.0, agreed in AGENT-004. One Windows PC, loopback
     only, no login screen. GET /session bootstraps an HttpOnly SameSite=Strict
@@ -353,7 +353,22 @@ paths:
       operationId: resumeAgentQueue
       security: [{LocalSession: [], CsrfToken: []}]
       parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
-      description: Clear pause after validation; no duplicate active writer. Stopping/uncertain run -> 409.
+      description: |
+        Owner only. Without a body, clear pause after validation; stopping/unknown -> 409.
+        Optional confirm_stopped=true is the Owner's explicit assertion that the old
+        process and terminal have stopped. Only accepted for unknown status; known
+        active managed tasks, owned terminals or detected external sessions -> 409 agent_busy.
+        Preserve the session ID/generation, close stale window reservations, record
+        the confirmation, and end uncertain deliveries as failed with process_outcome
+        unknown and reason owner_confirmed_stopped. Their Run outcome remains unknown.
+        Clear the active run and queue pause; queued work may then dispatch. No process
+        adoption/termination and no automatic retry of the uncertain delivery.
+        The Owner must verify stopped processes; a missing scan result is not proof.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ResumeQueueRequest'}
       responses:
         '200': {$ref: '#/components/responses/AgentControl'}
         default: {$ref: '#/components/responses/Error'}
@@ -733,6 +748,12 @@ components:
     ThreadRef: {$ref: 'events.schema.json#/$defs/ThreadRef'}
     AgentStatus: {$ref: 'events.schema.json#/$defs/AgentStatus'}
     Delivery: {$ref: 'events.schema.json#/$defs/Delivery'}
+    ResumeQueueRequest:
+      type: object
+      additionalProperties: false
+      required: [confirm_stopped]
+      properties:
+        confirm_stopped: {const: true}
     ResumeWindowReceipt:
       type: object
       additionalProperties: false

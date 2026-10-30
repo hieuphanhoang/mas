@@ -84,6 +84,9 @@ def test_agent_side_mas_call_creates_scoped_child_delivery(live):
     denied = client.post("/api/v1" + A + "/resume-window", headers={
         "Authorization": "Bearer " + secret, "Idempotency-Key": "agent-resume-denied"})
     assert denied.status_code == 403
+    denied = client.post("/api/v1" + A + "/resume-queue", json={"confirm_stopped": True}, headers={
+        "Authorization": "Bearer " + secret, "Idempotency-Key": "agent-confirm-denied"})
+    assert denied.status_code == 403
     class Bridge(BaseHTTPRequestHandler):
         def do_GET(self):
             self.forward()

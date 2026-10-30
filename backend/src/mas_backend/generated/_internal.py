@@ -298,6 +298,13 @@ class EventCursor(RootModel[Cursor]):
     root: Cursor
 
 
+class ResumeQueueRequest(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+    confirm_stopped: Literal[True]
+
+
 class ResumeWindowReceipt(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
