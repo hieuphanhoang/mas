@@ -31,6 +31,7 @@ export type ThreadDocument = S["ThreadDocument"];
 export type ReplyRequest = S["ReplyRequest"];
 export type ReplyReceipt = S["ReplyReceipt"];
 export type RunOutput = S["RunOutput"];
+export type ResumeWindowReceipt = S["ResumeWindowReceipt"];
 
 export type IndexSection = NonNullable<operations["getLogIndex"]["parameters"]["query"]>["section"];
 

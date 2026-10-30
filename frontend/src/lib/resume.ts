@@ -24,7 +24,7 @@ export function resumeCommand(t: ResumeTarget): ResumeCommand | null {
     case "codex": return { command: `${cd}codex resume ${psLiteral(t.sessionId)}` };
     // MAS hands opencode its provider settings per run (OPENCODE_CONFIG_CONTENT); a bare command in a
     // normal terminal would not find the model (AGENT-004, Codex P2).
-    case "opencode": return { reason: "An opencode session needs the provider settings MAS passes on each run, so a plain command cannot open it. Use Open in terminal once the service offers it." };
+    case "opencode": return { reason: "An opencode session needs the provider settings MAS passes on each run, so a plain command cannot open it. Use Open in terminal." };
     default: return null;
   }
 }

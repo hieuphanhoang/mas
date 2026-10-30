@@ -5,8 +5,9 @@ import { useAgentAction, useAgents, useCalls, useLogIndex, useLogs, useProject, 
 import { useMutation } from "@tanstack/react-query";
 import { textToPathRefs } from "../lib/projectConfig";
 import { resumeCommand } from "../lib/resume";
+import { callerLabel, runDuration } from "../lib/history";
 import { Markdown } from "../lib/markdown";
-import type { AgentStatus, AgentView, Delivery, ThreadRef, ThreadSummary } from "../api/types";
+import type { AgentStatus, AgentView, Delivery, ResumeWindowReceipt, ThreadRef, ThreadSummary } from "../api/types";
 import { useProjectEvents } from "../api/useProjectEvents";
 import { ProjectPicker } from "../components/ProjectPicker";
 import { Empty, ErrorNote, Loading, Pill, fmtTime } from "../components/ui";
@@ -165,7 +166,7 @@ function SessionPanel({ projectId, a, workingFolder }: { projectId: string; a: A
   const cmd = resume && "command" in resume ? resume.command : null;
   const [copied, setCopied] = useState(false);
   const open = useMutation({
-    mutationFn: async () => (await post<{ command?: string }>(`/projects/${encodeURIComponent(projectId)}/agents/${encodeURIComponent(a.config.id)}/resume-window`, undefined, { idempotencyKey: idempotencyKey() })).data,
+    mutationFn: async () => (await post<ResumeWindowReceipt>(`/projects/${encodeURIComponent(projectId)}/agents/${encodeURIComponent(a.config.id)}/resume-window`, undefined, { idempotencyKey: idempotencyKey() })).data,
   });
   const busy = s.state === "busy" || s.state === "starting" || s.state === "stopping";
   const copy = async () => {
@@ -191,10 +192,10 @@ function SessionPanel({ projectId, a, workingFolder }: { projectId: string; a: A
             )}
           </div>
           <div className="muted small">
-            {busy ? "The agent is working now. Open its session when it is idle: two writers on one session break it." : "While you have the session open, MAS holds new calls to this agent. Close it to let them run."}
+            {busy ? "The agent is working now. Open its session when it is idle: two writers on one session break it." : "While its window is open, MAS holds new calls to this agent. Close the window to let them run."}
           </div>
           <ErrorNote error={open.error} />
-          {open.data && <div className="note note--ok small">Opened in a new terminal window.</div>}
+          {open.data && <div className="note note--ok small">Opened in a new PowerShell window in {open.data.working_folder}. Calls to {a.config.name} wait until you close it.</div>}
         </>
       )}
     </div>
@@ -221,8 +222,10 @@ function Conversation({ r }: { r: ThreadRef }) {
 function Drawer({ projectId, a, onClose, workingFolder }: { projectId: string; a: AgentView; onClose: () => void; workingFolder: string | null }) {
   const act = useAgentAction(projectId);
   const calls = useCalls(projectId, a.config.id);
+  const team = useAgents(projectId);
+  const names = useMemo(() => new Map((team.data?.items ?? []).map((x) => [x.config.id, x.config.name])), [team.data]);
   const logs = useLogs(projectId);
-  const [tab, setTab] = useState<"runs" | "call" | "chat" | "output">("runs");
+  const [tab, setTab] = useState<"history" | "call" | "chat" | "output">("history");
   const [text, setText] = useState("");
   const [threadRef, setThreadRef] = useState<ThreadRef | null>(null);
   const [logId, setLogId] = useState<string>("");
@@ -261,25 +264,26 @@ function Drawer({ projectId, a, onClose, workingFolder }: { projectId: string; a
       </div>
       <ErrorNote error={act.wake.error ?? act.stop.error ?? act.resumeQueue.error} />
       <div className="tabs">
-        {(["runs", "call", "chat", "output"] as const).map((t) => <button key={t} className={`tab ${tab === t ? "tab--on" : ""}`} onClick={() => setTab(t)}>{t}</button>)}
+        {(["history", "call", "chat", "output"] as const).map((t) => <button key={t} className={`tab ${tab === t ? "tab--on" : ""}`} onClick={() => setTab(t)}>{t}</button>)}
       </div>
 
-      {tab === "call" && <CallForm projectId={projectId} a={a} onSent={() => setTab("runs")} />}
+      {tab === "call" && <CallForm projectId={projectId} a={a} onSent={() => setTab("history")} />}
 
-      {tab === "runs" && (
+      {tab === "history" && (
         <div>
           <ErrorNote error={calls.error} />
-          {calls.data && calls.data.items.length === 0 && <Empty>No deliveries yet.</Empty>}
+          {calls.data && calls.data.items.length === 0 && <Empty>No work yet. Every call and message to {a.config.name} shows up here.</Empty>}
           {calls.data && calls.data.items.length > 0 && (
             <table className="table small">
-              <thead><tr><th>When</th><th>Kind</th><th>State</th><th>Thread</th><th></th></tr></thead>
+              <thead><tr><th>When</th><th>From</th><th>Thread</th><th>State</th><th>Took</th><th></th></tr></thead>
               <tbody>
                 {calls.data.items.map((d: Delivery) => (
                   <tr key={d.delivery_id}>
-                    <td>{fmtTime(d.created_at)}</td>
-                    <td>{d.purpose === "notification" ? "notify" : d.kind}</td>
-                    <td><DeliveryState d={d} />{d.reason ? <div className="muted">{d.reason}</div> : null}</td>
+                    <td>{fmtTime(d.run_started_at ?? d.created_at)}</td>
+                    <td>{callerLabel(d.caller, names)}{d.purpose === "notification" ? <div className="muted">notify</div> : null}</td>
                     <td>{d.thread_ref ? <Link to={`/threads/${d.thread_ref.project_id}/${d.thread_ref.log_id}/${d.thread_ref.thread_id}`}>{d.thread_ref.thread_id}</Link> : "-"}</td>
+                    <td><DeliveryState d={d} />{d.reason ? <div className="muted">{d.reason}</div> : null}</td>
+                    <td className="mono">{runDuration(d.run_started_at, d.run_finished_at)}</td>
                     <td className="row">
                       {d.run_id && <button className="linklike" onClick={() => { setRunId(d.run_id); setTab("output"); }}>output</button>}
                       {(d.state === "queued" || d.state === "running" || d.state === "dispatching") && <button className="linklike" onClick={() => act.cancel.mutate({ call: d.delivery_id, key: idempotencyKey() })}>cancel</button>}
@@ -324,7 +328,7 @@ function Drawer({ projectId, a, onClose, workingFolder }: { projectId: string; a
         </form>
       )}
 
-      {tab === "output" && (runId ? <OutputPane key={runId} projectId={projectId} runId={runId} /> : <Empty>Pick a run in the runs tab.</Empty>)}
+      {tab === "output" && (runId ? <OutputPane key={runId} projectId={projectId} runId={runId} /> : <Empty>Pick a run in the history tab.</Empty>)}
     </aside>
   );
 }
