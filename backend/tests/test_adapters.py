@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import sysconfig
 import time
 
 from fastapi.testclient import TestClient
@@ -54,6 +55,17 @@ def turn(adapter, directory, session=None, timeout=3, cancelled=lambda: False):
         )
     )
     return result, sessions, output
+
+
+def test_launch_finds_service_mas_without_scripts_on_parent_path(tmp_path, monkeypatch):
+    inherited = str(tmp_path / "unrelated-bin")
+    monkeypatch.setenv("PATH", inherited)
+    result, _, _ = turn(fake("codex", tmp_path), tmp_path)
+    assert result.exit_code == 0 and result.reason is None
+    record = json.loads((tmp_path / "codex.jsonl").read_text().splitlines()[0])
+    scripts = Path(sysconfig.get_path("scripts"))
+    assert record["launch_path"] == str(scripts) + os.pathsep + inherited
+    assert Path(record["mas_executable"]) == scripts / ("mas.exe" if os.name == "nt" else "mas")
 
 
 @pytest.mark.parametrize("harness", ["claude", "codex", "opencode"])

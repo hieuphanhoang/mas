@@ -15,6 +15,7 @@ from pathlib import Path
 import shutil
 import signal
 import subprocess
+import sysconfig
 import uuid
 
 from .guard_paths import handoff_commands, claude_edits, mas_commands
@@ -100,6 +101,9 @@ def clean_environment(extra=None):
     env.update(PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
     if extra:
         env.update(extra)
+    path_key = next((key for key in env if key.upper() == "PATH"), "PATH")
+    inherited_path = env.pop(path_key, "")
+    env["PATH"] = sysconfig.get_path("scripts") + (os.pathsep + inherited_path if inherited_path else "")
     return env
 
 
